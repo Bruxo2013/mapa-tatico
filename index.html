@@ -6,7 +6,8 @@
 <title>Mapa Tático - Posicionamento de Efetivo</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1614,20 +1615,48 @@ class App {
 }
 
 // ╔════════════════════════════════════════════════════════════════╗
-// ║     SINCRONIZAÇÃO P2P EM TEMPO REAL (PeerJS / WebRTC)         ║
-// ║     Sem servidor — conexão direta entre dispositivos          ║
+// ║     SINCRONIZAÇÃO EM TEMPO REAL (Firebase Realtime Database)  ║
+// ║     Sem servidor próprio — Firebase Cloud gratuito             ║
+// ║     Estado PERSISTE ao atualizar a página!                    ║
 // ╚════════════════════════════════════════════════════════════════╝
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBVpNhZE0pujZQRvcGlieqPJmoZTbxwNEQ",
+  authDomain: "bepe-dashboard.firebaseapp.com",
+  databaseURL: "https://bepe-dashboard-default-rtdb.firebaseio.com",
+  projectId: "bepe-dashboard",
+  storageBucket: "bepe-dashboard.firebasestorage.app",
+  messagingSenderId: "170956670588",
+  appId: "1:170956670588:web:5068c4ebee85c874182bf9"
+};
+firebase.initializeApp(firebaseConfig);
+const fbDb = firebase.database();
+
 class SyncManager {
   constructor(app) {
     this.app = app;
-    this.peer = null;
-    this.connections = {};  // peerId -> DataConnection
-    this.isHost = false;
     this.roomId = null;
     this.myName = '';
-    this.members = {};      // peerId -> { name }
+    this.myId = 'u_' + Math.random().toString(36).substring(2, 10);
     this.suppressSync = false;
     this._remoteCursors = {};
+    this._listeners = [];
+    this._presenceRef = null;
+    this._heartbeat = null;
+
+    // Auto-reconectar se estava numa sala antes
+    const saved = localStorage.getItem('mptac_room');
+    if (saved) {
+      try {
+        const s = JSON.parse(saved);
+        if (s.roomId && s.name) {
+          setTimeout(() => {
+            document.getElementById('room-my-name').value = s.name;
+            this._joinRoomDirect(s.roomId, s.name);
+          }, 500);
+        }
+      } catch(e) {}
+    }
   }
 
   // ── Gerar código de sala de 6 caracteres ──
@@ -1638,326 +1667,345 @@ class SyncManager {
     return code;
   }
 
-  // ── CRIAR SALA (host) ──
-  createRoom() {
-    this.myName = document.getElementById('room-my-name').value.trim() || 'Anfitrião';
-    this.roomId = this.generateRoomCode();
-    this.isHost = true;
+  // ── Referência da sala no Firebase ──
+  roomRef() {
+    return fbDb.ref('efetivo/mapa_tatico/rooms/' + this.roomId);
+  }
 
+  // ── CRIAR SALA ──
+  createRoom() {
+    this.myName = document.getElementById('room-my-name').value.trim() || 'Operador';
+    this.roomId = this.generateRoomCode();
     this.updateBadge('waiting', 'Criando...');
 
-    // PeerJS ID = "mptac-" + código da sala (o host usa o código como ID)
-    const peerId = 'mptac-' + this.roomId.toLowerCase();
-    this.peer = new Peer(peerId);
-
-    this.peer.on('open', (id) => {
-      console.log('[P2P] Sala criada:', this.roomId);
-      this.members[id] = { name: this.myName };
-      this.updateRoomUI();
-      this.updateBadge('connected', `🟢 ${this.roomId}`);
+    // Criar sala no Firebase com estado inicial
+    this.roomRef().set({
+      createdAt: firebase.database.ServerValue.TIMESTAMP,
+      markers: {},
+      objectCounter: 0,
+      stadium: this.app.currentStadium?.id || 'maracana'
+    }).then(() => {
+      console.log('[Firebase] Sala criada:', this.roomId);
+      this._subscribeToRoom();
+      this._setupPresence();
+      this._saveSession();
       toast(`📡 Sala ${this.roomId} criada! Compartilhe o código.`, 'success');
-    });
-
-    this.peer.on('connection', (conn) => {
-      this.handleNewConnection(conn);
-    });
-
-    this.peer.on('error', (err) => {
-      console.error('[P2P] Erro:', err.type, err.message);
-      if (err.type === 'unavailable-id') {
-        toast('❌ Código de sala já em uso. Tente novamente.', 'error');
-        this.updateBadge('disconnected', 'Erro');
-      } else {
-        toast(`❌ Erro: ${err.type}`, 'error');
-      }
-    });
-
-    this.peer.on('disconnected', () => {
-      this.updateBadge('waiting', 'Reconectando...');
-      setTimeout(() => { if (this.peer && !this.peer.destroyed) this.peer.reconnect(); }, 2000);
+    }).catch(err => {
+      console.error('[Firebase] Erro ao criar sala:', err);
+      toast('❌ Erro ao criar sala', 'error');
+      this.updateBadge('disconnected', 'Erro');
     });
   }
 
-  // ── ENTRAR NA SALA (membro) ──
+  // ── ENTRAR NA SALA ──
   joinRoom() {
     const code = document.getElementById('room-code-input').value.trim().toUpperCase();
     if (!code || code.length < 4) {
       toast('Digite o código da sala', 'error');
       return;
     }
+    this.myName = document.getElementById('room-my-name').value.trim() || 'Operador';
+    this._joinRoomDirect(code, this.myName);
+  }
 
-    this.myName = document.getElementById('room-my-name').value.trim() || 'Membro';
+  _joinRoomDirect(code, name) {
     this.roomId = code;
-    this.isHost = false;
-
+    this.myName = name;
     this.updateBadge('waiting', 'Conectando...');
 
-    this.peer = new Peer(); // ID aleatório
-
-    this.peer.on('open', (myId) => {
-      console.log('[P2P] Meu ID:', myId);
-
-      // Conectar ao host
-      const hostId = 'mptac-' + code.toLowerCase();
-      const conn = this.peer.connect(hostId, { reliable: true });
-
-      conn.on('open', () => {
-        this.connections[conn.peer] = conn;
-        // Enviar meu nome
-        conn.send(JSON.stringify({ type: 'hello', name: this.myName, peerId: myId }));
-        this.updateBadge('connected', `🟢 ${code}`);
-        toast(`📡 Conectado à sala ${code}!`, 'success');
-        this.updateRoomUI();
-      });
-
-      conn.on('data', (raw) => {
-        this.onData(raw, conn);
-      });
-
-      conn.on('close', () => {
-        delete this.connections[conn.peer];
-        this.updateBadge('disconnected', 'Desconectado');
-        toast('⚠️ Conexão com a sala perdida', 'error');
-      });
-
-      conn.on('error', (err) => {
-        toast(`❌ Erro de conexão: ${err}`, 'error');
-      });
-    });
-
-    this.peer.on('error', (err) => {
-      console.error('[P2P] Erro:', err.type);
-      if (err.type === 'peer-unavailable') {
+    // Verificar se sala existe
+    fbDb.ref('efetivo/mapa_tatico/rooms/' + code).once('value').then(snap => {
+      if (!snap.exists()) {
         toast('❌ Sala não encontrada. Verifique o código.', 'error');
-      } else {
-        toast(`❌ Erro: ${err.type}`, 'error');
+        this.updateBadge('disconnected', 'Erro');
+        this.roomId = null;
+        localStorage.removeItem('mptac_room');
+        return;
       }
+
+      // Carregar estado completo
+      const state = snap.val();
+      this.suppressSync = true;
+
+      // Limpar marcadores atuais
+      Object.values(this.app.markers).forEach(m => this.app.map.removeLayer(m.marker));
+      this.app.markers = {};
+      this.app.objectCounter = state.objectCounter || 0;
+
+      // Recriar marcadores do Firebase
+      if (state.markers) {
+        for (const [id, data] of Object.entries(state.markers)) {
+          const marker = this.app.createMarker(data);
+          this.app.markers[id] = { marker, data };
+        }
+      }
+      this.app.updateTree();
+      this.app.updateCounts();
+
+      // Carregar estádio se diferente
+      if (state.stadium && state.stadium !== this.app.currentStadium?.id) {
+        this.app.loadStadium(state.stadium);
+      }
+
+      this.suppressSync = false;
+
+      this._subscribeToRoom();
+      this._setupPresence();
+      this._saveSession();
+      toast(`📡 Conectado à sala ${code}!`, 'success');
+
+    }).catch(err => {
+      console.error('[Firebase] Erro ao entrar:', err);
+      toast('❌ Erro ao conectar', 'error');
       this.updateBadge('disconnected', 'Erro');
     });
   }
 
-  // ── Host: receber nova conexão ──
-  handleNewConnection(conn) {
-    conn.on('open', () => {
-      this.connections[conn.peer] = conn;
-      console.log('[P2P] Novo membro:', conn.peer);
+  // ── Salvar sessão para auto-reconexão ──
+  _saveSession() {
+    localStorage.setItem('mptac_room', JSON.stringify({
+      roomId: this.roomId,
+      name: this.myName
+    }));
+  }
 
-      // Enviar estado completo para o novo membro
-      const state = this.getFullState();
-      conn.send(JSON.stringify({ type: 'full_state', state, members: this.members }));
+  // ── Presença (quem está online) ──
+  _setupPresence() {
+    const presRef = fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/presence/${this.myId}`);
+    this._presenceRef = presRef;
+
+    presRef.set({
+      name: this.myName,
+      joinedAt: firebase.database.ServerValue.TIMESTAMP,
+      lastSeen: firebase.database.ServerValue.TIMESTAMP
     });
 
-    conn.on('data', (raw) => {
-      this.onData(raw, conn);
+    // Remover ao desconectar
+    presRef.onDisconnect().remove();
+
+    // Heartbeat a cada 15s
+    this._heartbeat = setInterval(() => {
+      if (this._presenceRef) {
+        this._presenceRef.update({ lastSeen: firebase.database.ServerValue.TIMESTAMP });
+      }
+    }, 15000);
+
+    // Ouvir presença de outros
+    const presenceListRef = fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/presence`);
+    presenceListRef.on('value', (snap) => {
+      const presence = snap.val() || {};
+      this._updateMembersList(presence);
     });
+    this._listeners.push({ ref: presenceListRef, event: 'value' });
+  }
 
-    conn.on('close', () => {
-      const name = this.members[conn.peer]?.name || conn.peer;
-      delete this.connections[conn.peer];
-      delete this.members[conn.peer];
-      // Remover cursor
-      if (this._remoteCursors[conn.peer]) {
-        this.app.map.removeLayer(this._remoteCursors[conn.peer]);
-        delete this._remoteCursors[conn.peer];
-      }
-      this.updateRoomUI();
-      this.broadcastToAll({ type: 'member_left', peerId: conn.peer });
-      toast(`👤 ${name} saiu da sala`, 'info');
+  _updateMembersList(presence) {
+    const list = document.getElementById('room-members-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    let count = 0;
+    const now = Date.now();
+
+    for (const [uid, info] of Object.entries(presence)) {
+      // Ignorar presença muito antiga (> 60s sem heartbeat)
+      if (info.lastSeen && (now - info.lastSeen) > 60000) continue;
+
+      count++;
+      const badge = document.createElement('span');
+      badge.className = 'room-member';
+      badge.textContent = uid === this.myId ? `${info.name} (você)` : (info.name || uid);
+      list.appendChild(badge);
+    }
+
+    this.updateBadge('connected', `${count} online`);
+  }
+
+  // ── Ouvir mudanças em tempo real ──
+  _subscribeToRoom() {
+    const roomPath = `efetivo/mapa_tatico/rooms/${this.roomId}`;
+
+    // 1) Marcadores adicionados
+    const markersRef = fbDb.ref(roomPath + '/markers');
+
+    markersRef.on('child_added', (snap) => {
+      if (this.suppressSync) return;
+      const data = snap.val();
+      if (!data || this.app.markers[data.id]) return;
+      this.suppressSync = true;
+      if (data.counter > this.app.objectCounter) this.app.objectCounter = data.counter;
+      const marker = this.app.createMarker(data);
+      this.app.markers[data.id] = { marker, data };
+      this.app.updateTree();
+      this.app.updateCounts();
+      this.suppressSync = false;
     });
-  }
+    this._listeners.push({ ref: markersRef, event: 'child_added' });
 
-  // ── Receber dados ──
-  onData(raw, fromConn) {
-    try {
-      const msg = typeof raw === 'string' ? JSON.parse(raw) : JSON.parse(new TextDecoder().decode(raw));
-      this.handleMessage(msg, fromConn);
-    } catch (e) {
-      console.error('[P2P] Erro ao processar mensagem:', e);
-    }
-  }
+    // 2) Marcadores alterados (move, edit)
+    markersRef.on('child_changed', (snap) => {
+      if (this.suppressSync) return;
+      const data = snap.val();
+      if (!data) return;
+      const m = this.app.markers[data.id];
+      if (!m) return;
+      this.suppressSync = true;
+      Object.assign(m.data, data);
+      m.marker.setLatLng([data.lat, data.lng]);
+      this.app.refreshSingleMarker(data.id);
+      this.app.updateTree();
+      this.app.updateProps();
+      this.suppressSync = false;
+    });
+    this._listeners.push({ ref: markersRef, event: 'child_changed' });
 
-  // ── Processar mensagem recebida ──
-  handleMessage(msg, fromConn) {
-    this.suppressSync = true;
+    // 3) Marcadores removidos
+    markersRef.on('child_removed', (snap) => {
+      if (this.suppressSync) return;
+      const data = snap.val();
+      if (!data) return;
+      const m = this.app.markers[data.id];
+      if (!m) return;
+      this.suppressSync = true;
+      m.marker.closePopup();
+      this.app.map.removeLayer(m.marker);
+      delete this.app.markers[data.id];
+      if (this.app.selectedMarkerId === data.id) this.app.selectedMarkerId = null;
+      this.app.updateTree();
+      this.app.updateCounts();
+      this.app.updateProps();
+      this.suppressSync = false;
+    });
+    this._listeners.push({ ref: markersRef, event: 'child_removed' });
 
-    switch (msg.type) {
-      case 'hello': {
-        // Novo membro se identificou
-        this.members[msg.peerId || fromConn.peer] = { name: msg.name };
-        this.updateRoomUI();
-        // Informar todos sobre o novo membro
-        this.broadcastToAll({ type: 'members_update', members: this.members });
-        toast(`👤 ${msg.name} entrou na sala`, 'success');
-        break;
+    // 4) Estádio mudou
+    const stadiumRef = fbDb.ref(roomPath + '/stadium');
+    stadiumRef.on('value', (snap) => {
+      if (this.suppressSync) return;
+      const stadium = snap.val();
+      if (stadium && stadium !== this.app.currentStadium?.id) {
+        this.suppressSync = true;
+        this.app.loadStadium(stadium);
+        this.suppressSync = false;
       }
+    });
+    this._listeners.push({ ref: stadiumRef, event: 'value' });
 
-      case 'full_state': {
-        // Membro recebeu estado completo do host
-        const state = msg.state;
-        this.app.objectCounter = state.objectCounter || 0;
-        Object.values(this.app.markers).forEach(m => this.app.map.removeLayer(m.marker));
-        this.app.markers = {};
-        for (const [id, data] of Object.entries(state.markers || {})) {
-          const marker = this.app.createMarker(data);
-          this.app.markers[id] = { marker, data };
-        }
-        this.app.updateTree();
-        this.app.updateCounts();
-        if (msg.members) this.members = { ...this.members, ...msg.members };
-        this.updateRoomUI();
-        break;
+    // 5) objectCounter
+    const counterRef = fbDb.ref(roomPath + '/objectCounter');
+    counterRef.on('value', (snap) => {
+      const val = snap.val();
+      if (val != null && val > this.app.objectCounter) {
+        this.app.objectCounter = val;
       }
+    });
+    this._listeners.push({ ref: counterRef, event: 'value' });
 
-      case 'members_update': {
-        this.members = { ...this.members, ...msg.members };
-        this.updateRoomUI();
-        break;
+    // 6) Cursores remotos
+    const cursorsRef = fbDb.ref(roomPath + '/cursors');
+    cursorsRef.on('child_changed', (snap) => {
+      const c = snap.val();
+      if (!c || snap.key === this.myId) return;
+      this.showRemoteCursor(snap.key, c.name, c.lat, c.lng);
+    });
+    cursorsRef.on('child_added', (snap) => {
+      const c = snap.val();
+      if (!c || snap.key === this.myId) return;
+      this.showRemoteCursor(snap.key, c.name, c.lat, c.lng);
+    });
+    cursorsRef.on('child_removed', (snap) => {
+      if (this._remoteCursors[snap.key]) {
+        this.app.map.removeLayer(this._remoteCursors[snap.key]);
+        delete this._remoteCursors[snap.key];
       }
+    });
+    this._listeners.push({ ref: cursorsRef, event: 'child_changed' });
+    this._listeners.push({ ref: cursorsRef, event: 'child_added' });
+    this._listeners.push({ ref: cursorsRef, event: 'child_removed' });
 
-      case 'member_left': {
-        delete this.members[msg.peerId];
-        if (this._remoteCursors[msg.peerId]) {
-          this.app.map.removeLayer(this._remoteCursors[msg.peerId]);
-          delete this._remoteCursors[msg.peerId];
-        }
-        this.updateRoomUI();
-        break;
-      }
-
-      case 'place': {
-        const data = msg.data;
-        if (data.counter > this.app.objectCounter) this.app.objectCounter = data.counter;
-        const marker = this.app.createMarker(data);
-        this.app.markers[data.id] = { marker, data };
-        this.app.updateTree();
-        this.app.updateCounts();
-        toast(`📌 ${msg.from || '?'} posicionou "${data.label}"`, 'info');
-        if (this.isHost) this.broadcastToAll(msg, fromConn);
-        break;
-      }
-
-      case 'move': {
-        const m = this.app.markers[msg.id];
-        if (m) {
-          m.data.lat = msg.lat;
-          m.data.lng = msg.lng;
-          m.marker.setLatLng([msg.lat, msg.lng]);
-          this.app.updateProps();
-        }
-        if (this.isHost) this.broadcastToAll(msg, fromConn);
-        break;
-      }
-
-      case 'edit': {
-        const m = this.app.markers[msg.id];
-        if (m) {
-          Object.assign(m.data, msg.changes);
-          this.app.refreshSingleMarker(msg.id);
-          this.app.updateTree();
-          this.app.updateProps();
-          toast(`✏️ ${msg.from || '?'} editou "${msg.changes.label || msg.id}"`, 'info');
-        }
-        if (this.isHost) this.broadcastToAll(msg, fromConn);
-        break;
-      }
-
-      case 'delete': {
-        const m = this.app.markers[msg.id];
-        if (m) {
-          m.marker.closePopup();
-          this.app.map.removeLayer(m.marker);
-          delete this.app.markers[msg.id];
-          if (this.app.selectedMarkerId === msg.id) this.app.selectedMarkerId = null;
-          this.app.updateTree();
-          this.app.updateCounts();
-          this.app.updateProps();
-          toast(`🗑 ${msg.from || '?'} removeu um elemento`, 'info');
-        }
-        if (this.isHost) this.broadcastToAll(msg, fromConn);
-        break;
-      }
-
-      case 'clear': {
-        Object.values(this.app.markers).forEach(m => this.app.map.removeLayer(m.marker));
-        this.app.markers = {};
-        this.app.objectCounter = 0;
-        this.app.selectedMarkerId = null;
-        this.app.updateTree();
-        this.app.updateCounts();
-        this.app.updateProps();
-        toast(`🧹 ${msg.from || '?'} limpou tudo`, 'info');
-        if (this.isHost) this.broadcastToAll(msg, fromConn);
-        break;
-      }
-
-      case 'stadium': {
-        this.app.loadStadium(msg.stadium);
-        if (this.isHost) this.broadcastToAll(msg, fromConn);
-        break;
-      }
-
-      case 'cursor': {
-        this.showRemoteCursor(msg.peerId, msg.name, msg.lat, msg.lng);
-        if (this.isHost) this.broadcastToAll(msg, fromConn);
-        break;
-      }
-    }
-
-    this.suppressSync = false;
-  }
-
-  // ── Obter estado completo ──
-  getFullState() {
-    const markers = {};
-    for (const [id, m] of Object.entries(this.app.markers)) {
-      markers[id] = { ...m.data };
-    }
-    return { markers, objectCounter: this.app.objectCounter };
-  }
-
-  // ── Broadcast para todos (host reencaminha) ──
-  broadcastToAll(msg, excludeConn = null) {
-    const data = JSON.stringify(msg);
-    for (const [peerId, conn] of Object.entries(this.connections)) {
-      if (conn !== excludeConn && conn.open) {
-        try { conn.send(data); } catch(e) {}
-      }
-    }
-  }
-
-  // ── Enviar para o host (membros) ou broadcast (host) ──
-  send(msg) {
-    if (this.suppressSync) return;
-    msg.from = this.myName;
-    msg.peerId = this.peer?.id;
-
-    if (this.isHost) {
-      this.broadcastToAll(msg);
-    } else {
-      // Membros enviam só para o host
-      const data = JSON.stringify(msg);
-      for (const conn of Object.values(this.connections)) {
-        if (conn.open) { try { conn.send(data); } catch(e) {} }
-      }
-    }
+    this.updateBadge('connected', `🟢 ${this.roomId}`);
+    this.updateRoomUI();
   }
 
   // ── Sair da sala ──
   leaveRoom() {
-    if (this.peer) {
-      this.peer.destroy();
-      this.peer = null;
+    // Remover presença
+    if (this._presenceRef) {
+      this._presenceRef.remove();
+      this._presenceRef = null;
     }
-    this.connections = {};
-    this.members = {};
-    this.isHost = false;
+    // Parar heartbeat
+    if (this._heartbeat) {
+      clearInterval(this._heartbeat);
+      this._heartbeat = null;
+    }
+    // Remover cursor
+    if (this.roomId) {
+      fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/cursors/${this.myId}`).remove();
+    }
+    // Desinscrever listeners
+    this._listeners.forEach(l => l.ref.off(l.event));
+    this._listeners = [];
+
     this.roomId = null;
+    localStorage.removeItem('mptac_room');
+
     // Limpar cursores remotos
     Object.values(this._remoteCursors).forEach(m => this.app.map.removeLayer(m));
     this._remoteCursors = {};
+
     this.updateBadge('disconnected', 'Sala');
     this.updateRoomUI();
     toast('Saiu da sala', 'info');
+  }
+
+  // ── Enviar ações para o Firebase ──
+  sendPlace(data) {
+    if (this.suppressSync || !this.roomId) return;
+    const roomPath = `efetivo/mapa_tatico/rooms/${this.roomId}`;
+    fbDb.ref(roomPath + '/markers/' + data.id).set(data);
+    fbDb.ref(roomPath + '/objectCounter').set(this.app.objectCounter);
+  }
+
+  sendMove(id, lat, lng) {
+    if (this.suppressSync || !this.roomId) return;
+    fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/markers/${id}`).update({ lat, lng });
+  }
+
+  sendEdit(id, changes) {
+    if (this.suppressSync || !this.roomId) return;
+    fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/markers/${id}`).update(changes);
+  }
+
+  sendDelete(id) {
+    if (this.suppressSync || !this.roomId) return;
+    fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/markers/${id}`).remove();
+  }
+
+  sendClear() {
+    if (this.suppressSync || !this.roomId) return;
+    const roomPath = `efetivo/mapa_tatico/rooms/${this.roomId}`;
+    fbDb.ref(roomPath + '/markers').remove();
+    fbDb.ref(roomPath + '/objectCounter').set(0);
+  }
+
+  sendStadium(id) {
+    if (this.suppressSync || !this.roomId) return;
+    fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/stadium`).set(id);
+  }
+
+  sendTile(style) {
+    if (this.suppressSync || !this.roomId) return;
+    fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/tileStyle`).set(style);
+  }
+
+  sendCursor(lat, lng) {
+    if (this.suppressSync || !this.roomId) return;
+    fbDb.ref(`efetivo/mapa_tatico/rooms/${this.roomId}/cursors/${this.myId}`).set({
+      name: this.myName,
+      lat, lng,
+      ts: firebase.database.ServerValue.TIMESTAMP
+    });
   }
 
   // ── UI ──
@@ -1974,32 +2022,12 @@ class SyncManager {
     const activeSec = document.getElementById('room-active-section');
     const leaveBtn = document.getElementById('room-leave-btn');
 
-    if (this.roomId && this.peer && !this.peer.destroyed) {
+    if (this.roomId) {
       createSec.style.display = 'none';
       joinSec.style.display = 'none';
       activeSec.style.display = 'block';
       leaveBtn.style.display = 'block';
-
       document.getElementById('room-code-show').textContent = this.roomId;
-
-      const list = document.getElementById('room-members-list');
-      list.innerHTML = '';
-      // Adicionar eu mesmo
-      const myBadge = document.createElement('span');
-      myBadge.className = 'room-member';
-      myBadge.textContent = `${this.myName} (você)`;
-      list.appendChild(myBadge);
-      // Adicionar outros
-      for (const [peerId, info] of Object.entries(this.members)) {
-        if (peerId === this.peer?.id) continue;
-        const badge = document.createElement('span');
-        badge.className = 'room-member';
-        badge.textContent = info.name || peerId.substring(0, 8);
-        list.appendChild(badge);
-      }
-
-      const count = Object.keys(this.connections).length + 1;
-      this.updateBadge('connected', `${count} online`);
     } else {
       createSec.style.display = 'block';
       joinSec.style.display = 'block';
@@ -2011,7 +2039,7 @@ class SyncManager {
   showRemoteCursor(peerId, name, lat, lng) {
     if (!this._remoteCursors[peerId]) {
       const colors = ['#58a6ff','#f85149','#3fb950','#d29922','#bc8cff','#ff7b72','#79c0ff','#56d364'];
-      const idx = Math.abs(peerId.split('').reduce((a,c) => a + c.charCodeAt(0), 0)) % colors.length;
+      const idx = Math.abs(String(peerId).split('').reduce((a,c) => a + c.charCodeAt(0), 0)) % colors.length;
       const color = colors[idx];
       const icon = L.divIcon({
         className: 'remote-cursor',
@@ -2028,18 +2056,8 @@ class SyncManager {
         this.app.map.removeLayer(this._remoteCursors[peerId]);
         delete this._remoteCursors[peerId];
       }
-    }, 5000);
+    }, 8000);
   }
-
-  // ── Enviar ações ──
-  sendPlace(data) { this.send({ type: 'place', data: { ...data, counter: this.app.objectCounter } }); }
-  sendMove(id, lat, lng) { this.send({ type: 'move', id, lat, lng }); }
-  sendEdit(id, changes) { this.send({ type: 'edit', id, changes }); }
-  sendDelete(id) { this.send({ type: 'delete', id }); }
-  sendClear() { this.send({ type: 'clear' }); }
-  sendStadium(id) { this.send({ type: 'stadium', stadium: id }); }
-  sendTile(style) { this.send({ type: 'tile', style }); }
-  sendCursor(lat, lng) { this.send({ type: 'cursor', lat, lng, name: this.myName, peerId: this.peer?.id }); }
 }
 
 // ╔════════════════════════════════════════════════════════════════╗
