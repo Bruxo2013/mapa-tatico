@@ -1,0 +1,2052 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapa Tático - Posicionamento de Efetivo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bg4:#292e36;
+  --border:#30363d;--border2:#484f58;
+  --txt:#e6edf3;--txt2:#8b949e;--txt3:#6e7681;
+  --accent:#58a6ff;--accent2:#79c0ff;--accent-bg:rgba(56,139,253,.15);
+  --success:#3fb950;--warn:#d29922;--danger:#f85149;
+  --panel:280px;--toolbar:48px;--status:28px;
+}
+html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt)}
+
+#app{display:grid;grid-template-rows:var(--toolbar) 1fr var(--status);grid-template-columns:var(--panel) 1fr var(--panel);height:100vh}
+
+/* TOOLBAR */
+#toolbar{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg2);border-bottom:1px solid var(--border);z-index:1000}
+#toolbar h1{font-size:14px;font-weight:700;color:var(--accent);white-space:nowrap}
+#toolbar h1 span{color:var(--txt2);font-weight:400;font-size:11px;margin-left:6px}
+.toolbar-sep{width:1px;height:24px;background:var(--border)}
+.mode-group{display:flex;gap:2px;background:var(--bg3);border-radius:6px;padding:2px}
+.mode-btn{padding:5px 10px;border:none;background:none;color:var(--txt2);font-size:11px;font-weight:500;border-radius:4px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.mode-btn:hover{color:var(--txt);background:var(--bg4)}
+.mode-btn.active{color:var(--txt);background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent)}
+.toolbar-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.btn{padding:6px 12px;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:5px}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2)}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.btn-secondary{background:var(--bg3);color:var(--txt);border:1px solid var(--border)}
+.btn-secondary:hover{background:var(--bg4)}
+.btn-danger{background:rgba(248,81,73,.15);color:var(--danger);border:1px solid rgba(248,81,73,.3)}
+.btn-block{width:100%}
+.btn-sm{padding:4px 8px;font-size:10px}
+
+/* PANELS */
+.panel{background:var(--bg2);overflow-y:auto;overflow-x:hidden;z-index:900}
+.panel:first-of-type{border-right:1px solid var(--border)}
+.panel:last-of-type{border-left:1px solid var(--border)}
+.panel::-webkit-scrollbar{width:5px}
+.panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.panel-section{border-bottom:1px solid var(--border)}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;cursor:pointer;user-select:none}
+.panel-header h3{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--txt2)}
+.panel-header .arrow{font-size:10px;color:var(--txt3);transition:transform .2s}
+.panel-section.collapsed .panel-content{display:none}
+.panel-section.collapsed .arrow{transform:rotate(-90deg)}
+.panel-content{padding:8px 12px 12px}
+
+/* STADIUM CARDS */
+.stadium-cards{display:flex;flex-direction:column;gap:6px}
+.stadium-card{display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s}
+.stadium-card:hover{border-color:var(--accent);background:var(--accent-bg)}
+.stadium-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.stadium-icon{font-size:28px;flex-shrink:0}
+.stadium-info{flex:1;min-width:0}
+.stadium-info .name{font-size:12px;font-weight:600;color:var(--txt)}
+.stadium-info .desc{font-size:10px;color:var(--txt3);margin-top:2px}
+
+/* FORMS */
+.form-row{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+.form-row label{font-size:10px;color:var(--txt2);font-weight:500}
+.form-row input,.form-row select{background:var(--bg3);border:1px solid var(--border);color:var(--txt);padding:5px 8px;border-radius:4px;font-size:11px;outline:none}
+.form-row input:focus,.form-row select:focus{border-color:var(--accent)}
+
+/* PHOTO REF */
+.photo-ref{position:relative}
+.photo-ref img{width:100%;border-radius:6px;border:1px solid var(--border);display:none;margin-top:6px}
+.photo-ref-label{font-size:9px;color:var(--txt3);margin-top:4px;text-align:center}
+
+/* UPLOAD MINI */
+.upload-mini{border:1px dashed var(--border);border-radius:6px;padding:12px 8px;text-align:center;cursor:pointer;transition:all .15s;font-size:11px;color:var(--txt2)}
+.upload-mini:hover{border-color:var(--accent);background:var(--accent-bg)}
+
+/* OBJECT GRID */
+.obj-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px}
+.obj-card{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .12s;user-select:none}
+.obj-card:hover{border-color:var(--accent);background:var(--accent-bg)}
+.obj-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.obj-icon{font-size:18px}
+.obj-name{font-size:8px;color:var(--txt2);font-weight:500;text-align:center;line-height:1.2}
+.obj-category{font-size:9px;font-weight:600;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin:6px 0 4px;padding:3px 0;border-bottom:1px solid var(--border);width:100%;text-align:center}
+
+/* SCENE TREE */
+.tree-item{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;transition:background .1s}
+.tree-item:hover{background:var(--bg4)}
+.tree-item.selected{background:var(--accent-bg);color:var(--accent)}
+.tree-item .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.tree-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tree-item .del-btn{opacity:0;background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;padding:2px}
+.tree-item:hover .del-btn{opacity:.7}
+.tree-empty{font-size:10px;color:var(--txt3);text-align:center;padding:14px 8px}
+
+/* PROPS */
+.prop-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;font-size:11px}
+.prop-grid label{color:var(--txt2);white-space:nowrap;font-size:10px}
+.prop-grid input{background:var(--bg3);border:1px solid var(--border);color:var(--txt);padding:3px 6px;border-radius:4px;font-size:11px;width:100%}
+
+/* MAP CONTAINER */
+#map-container{position:relative;z-index:1;overflow:hidden;background:#e8e0d8}
+#map-wrapper{position:absolute;top:-25%;left:-25%;width:150%;height:150%;transform-origin:center center;will-change:transform}
+#map-wrapper.smooth{transition:transform .5s cubic-bezier(.25,.46,.45,.94)}
+#map-wrapper.snap{transition:transform .7s cubic-bezier(.16,1,.3,1)}
+#map{width:100%;height:100%}
+
+/* Compass Widget */
+.compass-widget{position:absolute;top:80px;right:12px;z-index:1100;width:48px;height:48px;cursor:pointer;user-select:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5))}
+.compass-ring{width:48px;height:48px;border-radius:50%;background:rgba(22,27,34,.85);border:2px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;transition:transform .5s cubic-bezier(.25,.46,.45,.94);backdrop-filter:blur(8px)}
+.compass-ring:hover{border-color:var(--accent);background:rgba(22,27,34,.95)}
+.compass-needle{position:relative;width:20px;height:36px}
+.compass-needle::before,.compass-needle::after{content:'';position:absolute;left:50%;width:0;height:0;transform:translateX(-50%)}
+.compass-needle::before{top:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:16px solid #f85149}
+.compass-needle::after{bottom:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:16px solid rgba(255,255,255,.5)}
+.compass-n{position:absolute;top:2px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:900;color:#f85149;letter-spacing:1px}
+.compass-degrees{position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:600;color:var(--txt2);white-space:nowrap;background:rgba(22,27,34,.8);padding:1px 5px;border-radius:3px}
+
+/* Leaflet marker customization */
+.tactical-marker{background:none!important;border:none!important}
+.tactical-marker-inner{display:flex;flex-direction:column;align-items:center;cursor:grab}
+.tactical-marker-inner:active{cursor:grabbing}
+.marker-shape{display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.8);border-radius:50%;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.5),0 0 0 1px rgba(0,0,0,.3)}
+.marker-label{font-size:9px;font-weight:700;color:#fff;background:rgba(0,0,0,.75);padding:1px 5px;border-radius:3px;margin-top:2px;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
+/* STATUSBAR */
+#statusbar{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:0 12px;background:var(--bg2);border-top:1px solid var(--border);font-size:10px;color:var(--txt3);z-index:1000}
+.status-item{display:flex;align-items:center;gap:4px}
+.sep{width:1px;height:14px;background:var(--border)}
+
+/* ONLINE / SALA */
+.online-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;cursor:pointer}
+.online-badge.connected{background:rgba(63,185,80,.2);color:#3fb950}
+.online-badge.disconnected{background:rgba(248,81,73,.2);color:#f85149}
+.online-badge.waiting{background:rgba(210,153,34,.2);color:#d29922}
+.online-dot{width:6px;height:6px;border-radius:50%;animation:pulse 2s infinite}
+.online-badge.connected .online-dot{background:#3fb950}
+.online-badge.disconnected .online-dot{background:#f85149}
+.online-badge.waiting .online-dot{background:#d29922}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* Room Modal */
+.room-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9000;align-items:center;justify-content:center}
+.room-overlay.show{display:flex}
+.room-modal{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;width:340px;max-width:92vw;box-shadow:0 8px 32px rgba(0,0,0,.6)}
+.room-modal h2{font-size:16px;margin-bottom:4px;color:var(--txt)}
+.room-modal .subtitle{font-size:11px;color:var(--txt2);margin-bottom:16px}
+.room-modal .room-section{margin-bottom:16px}
+.room-modal .room-section h3{font-size:12px;color:var(--txt2);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+.room-modal label{display:block;font-size:11px;color:var(--txt2);margin-bottom:4px}
+.room-modal input{width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--txt);border-radius:6px;font-size:14px;font-family:monospace;text-align:center;letter-spacing:3px}
+.room-modal input:focus{border-color:var(--accent);outline:none}
+.room-code-display{background:var(--bg);border:2px dashed var(--accent);border-radius:8px;padding:12px;text-align:center;margin:8px 0}
+.room-code-display .code{font-size:28px;font-weight:900;color:var(--accent);letter-spacing:6px;font-family:monospace}
+.room-code-display .hint{font-size:10px;color:var(--txt3);margin-top:4px}
+.room-members{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.room-member{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--accent-bg);color:var(--accent)}
+.room-actions{display:flex;gap:8px;margin-top:16px}
+.room-actions .btn{flex:1}
+.remote-cursor{pointer-events:none;z-index:800}
+.remote-cursor-label{font-size:8px;font-weight:700;color:#fff;padding:1px 4px;border-radius:3px;white-space:nowrap;position:absolute;top:-16px;left:8px}
+
+/* TOAST */
+#toast-container{position:fixed;top:56px;right:14px;z-index:9999;display:flex;flex-direction:column;gap:6px}
+.toast{padding:8px 14px;border-radius:8px;font-size:11px;font-weight:500;animation:slideIn .3s;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.toast.success{background:rgba(63,185,80,.92);color:#fff}
+.toast.error{background:rgba(248,81,73,.92);color:#fff}
+.toast.info{background:rgba(56,139,253,.92);color:#fff}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Leaflet overrides for dark theme */
+.leaflet-control-zoom a{background:var(--bg2)!important;color:var(--txt)!important;border-color:var(--border)!important}
+.leaflet-control-zoom a:hover{background:var(--bg3)!important}
+.leaflet-control-attribution{background:rgba(13,17,23,.7)!important;color:var(--txt3)!important;font-size:9px!important}
+.leaflet-control-attribution a{color:var(--accent)!important}
+.leaflet-popup-content-wrapper{background:var(--bg2)!important;color:var(--txt)!important;border:1px solid var(--border)!important;border-radius:10px!important;box-shadow:0 8px 24px rgba(0,0,0,.5)!important;padding:0!important}
+.leaflet-popup-content{margin:0!important;min-width:240px!important}
+.leaflet-popup-tip{background:var(--bg2)!important}
+.leaflet-popup-close-button{color:var(--txt3)!important;font-size:18px!important;top:6px!important;right:8px!important}
+.leaflet-popup-close-button:hover{color:var(--danger)!important}
+
+/* EDIT POPUP */
+.edit-popup{padding:14px 16px}
+.edit-popup-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.edit-popup-icon{font-size:24px}
+.edit-popup-type{font-size:11px;color:var(--txt2);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.edit-popup .edit-field{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+.edit-popup .edit-field label{font-size:10px;color:var(--txt3);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.edit-popup .edit-field input,.edit-popup .edit-field textarea,.edit-popup .edit-field select{
+  background:var(--bg3);border:1px solid var(--border);color:var(--txt);padding:6px 10px;border-radius:5px;font-size:12px;outline:none;font-family:inherit;width:100%;transition:border-color .15s}
+.edit-popup .edit-field input:focus,.edit-popup .edit-field textarea:focus{border-color:var(--accent)}
+.edit-popup .edit-field textarea{resize:vertical;min-height:42px}
+.edit-popup .edit-field select{cursor:pointer}
+.edit-popup .edit-coords{display:flex;gap:6px}
+.edit-popup .edit-coords .edit-field{flex:1}
+.edit-popup-actions{display:flex;gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
+.edit-popup-actions .btn{flex:1;font-size:11px;padding:5px 8px}
+.edit-color-row{display:flex;gap:6px;align-items:center}
+.edit-color-row input[type="color"]{width:32px;height:28px;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:var(--bg3);padding:2px}
+.edit-color-row span{font-size:11px;color:var(--txt2)}
+
+/* ═══ MOBILE PANEL TOGGLES ═══ */
+.mobile-panel-toggles{display:none;position:fixed;bottom:36px;left:50%;transform:translateX(-50%);z-index:2000;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:4px;gap:2px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.mobile-toggle{padding:8px 14px;border:none;background:none;color:var(--txt2);font-size:12px;font-weight:600;border-radius:8px;cursor:pointer;transition:all .15s}
+.mobile-toggle:hover{background:var(--bg4)}
+.mobile-toggle.active{background:var(--accent-bg);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+
+/* ═══ RESPONSIVE ═══ */
+
+/* Tablet: ≤1024px — painéis menores */
+@media(max-width:1024px){
+  :root{--panel:220px}
+  #toolbar h1 span{display:none}
+  .mode-btn{padding:5px 8px;font-size:10px}
+  .btn-sm{font-size:9px;padding:3px 6px}
+  .obj-grid{grid-template-columns:1fr 1fr}
+  .toolbar-right .btn span.btn-text{display:none}
+}
+
+/* Mobile: ≤768px — layout single column */
+@media(max-width:768px){
+  :root{--toolbar:44px;--status:24px}
+
+  #app{
+    grid-template-columns:1fr;
+    grid-template-rows:var(--toolbar) 1fr var(--status);
+  }
+
+  /* Painéis viram drawers sobrepostos */
+  .panel{
+    position:fixed;
+    top:var(--toolbar);
+    bottom:var(--status);
+    width:280px;
+    z-index:1500;
+    transform:translateX(-100%);
+    transition:transform .25s ease;
+    box-shadow:4px 0 20px rgba(0,0,0,.4);
+  }
+  .panel:last-of-type{
+    left:auto;
+    right:0;
+    transform:translateX(100%);
+    border-left:1px solid var(--border);
+  }
+  .panel:first-of-type{
+    left:0;
+    border-right:1px solid var(--border);
+  }
+  .panel.open{transform:translateX(0)}
+
+  /* Backdrop quando painel está aberto */
+  .panel-backdrop{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.5);
+    z-index:1400;
+  }
+  .panel-backdrop.show{display:block}
+
+  /* Mobile toggles visíveis */
+  .mobile-panel-toggles{display:flex}
+
+  /* Toolbar compacto */
+  #toolbar{padding:0 8px;gap:6px;overflow-x:auto}
+  #toolbar h1{font-size:12px}
+  #toolbar h1 span{display:none}
+  .toolbar-sep{display:none}
+  .mode-btn{padding:4px 8px;font-size:10px}
+  .toolbar-right{gap:4px}
+  .toolbar-right .btn{padding:4px 6px;font-size:9px}
+  .toolbar-right #btn-toggle-labels,
+  .toolbar-right #btn-clear-all{display:none}
+
+  /* Statusbar compacto */
+  #statusbar{padding:0 8px;font-size:9px;gap:8px;overflow-x:auto}
+  .sep{display:none}
+
+  /* Map ocupa tudo */
+  #map-container{grid-column:1;grid-row:2}
+
+  /* Popup menor */
+  .leaflet-popup-content{min-width:200px!important}
+  .edit-popup{padding:10px 12px}
+  .edit-popup .edit-coords{flex-direction:column}
+}
+
+/* Small phone: ≤480px */
+@media(max-width:480px){
+  :root{--toolbar:40px;--status:22px}
+  #toolbar h1{font-size:11px}
+  .mode-group{gap:1px}
+  .mode-btn{padding:3px 6px;font-size:9px}
+  .toolbar-right #btn-export{display:none}
+  .mobile-toggle{padding:6px 10px;font-size:11px}
+  .panel{width:260px}
+  .obj-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header id="toolbar">
+    <h1>🎯 MAPA TÁTICO <span>Posicionamento de Efetivo PM</span></h1>
+    <div class="toolbar-sep"></div>
+    <div class="mode-group">
+      <button class="mode-btn active" data-mode="pan" title="Navegar no Mapa">🖐 Navegar</button>
+      <button class="mode-btn" data-mode="place" title="Posicionar Objeto">📌 Posicionar</button>
+      <button class="mode-btn" data-mode="delete" title="Deletar Objeto">🗑 Deletar</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-right">
+      <span class="online-badge disconnected" id="online-badge" onclick="document.getElementById('room-overlay').classList.add('show')" title="Clique para criar/entrar numa sala"><span class="online-dot"></span><span id="online-text">Sala</span></span>
+      <button class="btn btn-sm btn-secondary" id="btn-toggle-labels">🏷 Rótulos</button>
+      <button class="btn btn-sm btn-secondary" id="btn-clear-all">🧹 Limpar Tudo</button>
+      <button class="btn btn-sm btn-primary" id="btn-export">📷 Exportar PNG</button>
+    </div>
+  </header>
+
+  <!-- LEFT PANEL -->
+  <aside class="panel" id="left-panel">
+    <!-- Stadiums -->
+    <div class="panel-section" id="sec-stadiums">
+      <div class="panel-header"><h3>🏟 Locais Pré-definidos</h3><span class="arrow">▼</span></div>
+      <div class="panel-content">
+        <div class="stadium-cards" id="stadium-cards"></div>
+      </div>
+    </div>
+
+    <!-- Manual location -->
+    <div class="panel-section" id="sec-coords">
+      <div class="panel-header"><h3>📍 Ir para Coordenada</h3><span class="arrow">▼</span></div>
+      <div class="panel-content">
+        <div style="display:flex;gap:6px">
+          <div class="form-row" style="flex:1">
+            <label>Latitude</label>
+            <input type="number" id="input-lat" step="0.0001" value="-22.9121">
+          </div>
+          <div class="form-row" style="flex:1">
+            <label>Longitude</label>
+            <input type="number" id="input-lng" step="0.0001" value="-43.2302">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block btn-sm" id="btn-goto" style="margin-top:4px">Ir para Local</button>
+      </div>
+    </div>
+
+    <!-- Photo reference -->
+    <div class="panel-section" id="sec-photo">
+      <div class="panel-header"><h3>📷 Foto de Referência</h3><span class="arrow">▼</span></div>
+      <div class="panel-content">
+        <div class="upload-mini" id="upload-zone">📎 Anexar foto do local (opcional)</div>
+        <input type="file" id="upload-input" accept="image/*" style="display:none">
+        <div class="photo-ref">
+          <img id="photo-preview" alt="">
+          <div class="photo-ref-label"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Map Style -->
+    <div class="panel-section" id="sec-style">
+      <div class="panel-header"><h3>🗺 Estilo do Mapa</h3><span class="arrow">▼</span></div>
+      <div class="panel-content">
+        <div class="form-row">
+          <label>Camada Base</label>
+          <select id="map-style">
+            <option value="osm">OpenStreetMap (Padrão)</option>
+            <option value="topo">Topográfico</option>
+            <option value="dark">Escuro</option>
+            <option value="satellite">Satélite</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Tamanho dos Marcadores</label>
+          <input type="range" id="marker-size" min="24" max="64" value="36" style="width:100%">
+        </div>
+        <div class="form-row">
+          <label>🧭 Rotação do Mapa (<span id="rotation-value">0</span>°)</label>
+          <input type="range" id="map-rotation" min="0" max="360" value="0" style="width:100%">
+        </div>
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <button class="btn btn-sm btn-secondary" style="flex:1" id="btn-rot-left" title="Girar 15° esquerda" onclick="window.app.rotateMap(-15)">↶ -15°</button>
+          <button class="btn btn-sm btn-secondary" style="flex:1" id="btn-rot-north" title="Resetar para Norte" onclick="window.app.rotateMap(0, true)">🧭 Norte</button>
+          <button class="btn btn-sm btn-secondary" style="flex:1" id="btn-rot-right" title="Girar 15° direita" onclick="window.app.rotateMap(15)">↷ +15°</button>
+        </div>
+        <div style="font-size:9px;color:var(--txt3);margin-top:6px;text-align:center">
+          Botão direito + arraste para girar | 2 dedos no celular
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAP -->
+  <main id="map-container">
+    <div class="compass-widget" id="compass" onclick="window.app.rotateMap(0, true)" title="Clique para voltar ao Norte">
+      <div class="compass-ring" id="compass-ring">
+        <div class="compass-needle"></div>
+        <span class="compass-n">N</span>
+      </div>
+      <span class="compass-degrees" id="compass-deg">0°</span>
+    </div>
+    <div id="map-wrapper">
+      <div id="map"></div>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="panel" id="right-panel">
+    <div class="panel-section" id="sec-objects">
+      <div class="panel-header"><h3>📦 Efetivo e Objetos</h3><span class="arrow">▼</span></div>
+      <div class="panel-content">
+        <div class="obj-grid" id="obj-grid"></div>
+      </div>
+    </div>
+
+    <div class="panel-section" id="sec-tree">
+      <div class="panel-header"><h3>📋 Posicionados (<span id="obj-count">0</span>)</h3><span class="arrow">▼</span></div>
+      <div class="panel-content">
+        <div id="scene-tree"><div class="tree-empty">Nenhum elemento posicionado</div></div>
+      </div>
+    </div>
+
+    <div class="panel-section" id="sec-props">
+      <div class="panel-header"><h3>⚙ Propriedades</h3><span class="arrow">▼</span></div>
+      <div class="panel-content" id="props-content">
+        <div class="tree-empty">Selecione um elemento</div>
+      </div>
+    </div>
+  </aside>
+
+  <footer id="statusbar">
+    <span class="status-item" id="status-mode">Modo: Navegar</span>
+    <span class="sep"></span>
+    <span class="status-item" id="status-objects">Elementos: 0</span>
+    <span class="sep"></span>
+    <span class="status-item" id="status-coords">Coords: —</span>
+    <span class="sep"></span>
+    <span class="status-item" id="status-zoom">Zoom: 16</span>
+    <span class="sep"></span>
+    <span class="status-item" id="status-local">Local: —</span>
+    <span class="sep"></span>
+    <span class="status-item" id="status-bearing">🧭 0°</span>
+  </footer>
+</div>
+
+<!-- Mobile panel toggles -->
+<div class="panel-backdrop" id="panel-backdrop"></div>
+<div class="mobile-panel-toggles" id="mobile-toggles">
+  <button class="mobile-toggle" id="toggle-left" title="Locais e Configurações">🗺 Mapa</button>
+  <button class="mobile-toggle" id="toggle-right" title="Efetivo e Objetos">📦 Objetos</button>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Modal Sala de Operação -->
+<div class="room-overlay" id="room-overlay">
+  <div class="room-modal">
+    <h2>📡 Sala de Operação</h2>
+    <div class="subtitle">Sincronize o mapa em tempo real com sua equipe</div>
+
+    <div class="room-section" id="room-create-section">
+      <h3>Criar Nova Sala</h3>
+      <p style="font-size:11px;color:var(--txt2);margin-bottom:8px">Você será o anfitrião. Compartilhe o código com a equipe.</p>
+      <label>Seu nome / identificação:</label>
+      <input type="text" id="room-my-name" placeholder="Ex: Cmt Silva" value="" style="margin-bottom:8px;letter-spacing:normal;text-align:left">
+      <button class="btn btn-primary btn-block" onclick="window.sync.createRoom()">🟢 Criar Sala</button>
+    </div>
+
+    <div class="room-section" id="room-join-section">
+      <h3>Entrar em Sala Existente</h3>
+      <label>Código da sala:</label>
+      <input type="text" id="room-code-input" placeholder="Ex: ABC123" maxlength="6" style="text-transform:uppercase">
+      <button class="btn btn-primary btn-block" style="margin-top:8px" onclick="window.sync.joinRoom()">🔗 Entrar</button>
+    </div>
+
+    <div class="room-section" id="room-active-section" style="display:none">
+      <h3>🟢 Sala Ativa</h3>
+      <div class="room-code-display">
+        <div class="code" id="room-code-show">------</div>
+        <div class="hint">Compartilhe este código com a equipe</div>
+      </div>
+      <div>
+        <label>Membros conectados:</label>
+        <div class="room-members" id="room-members-list"></div>
+      </div>
+    </div>
+
+    <div class="room-actions">
+      <button class="btn btn-secondary" onclick="document.getElementById('room-overlay').classList.remove('show')">Fechar</button>
+      <button class="btn btn-danger" id="room-leave-btn" style="display:none" onclick="window.sync.leaveRoom()">Sair da Sala</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ╔════════════════════════════════════════════════════════════════╗
+// ║     MAPA TÁTICO PM — POSICIONAMENTO DE EFETIVO E OBJETOS     ║
+// ╚════════════════════════════════════════════════════════════════╝
+
+function toast(msg, type='info') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+// ── PRE-DEFINED STADIUMS ──
+const STADIUMS = [
+  {
+    id: 'maracana',
+    name: 'Maracanã',
+    desc: 'Est. Jornalista Mário Filho',
+    icon: '🏟',
+    lat: -22.9121,
+    lng: -43.2302,
+    zoom: 17
+  },
+  {
+    id: 'engenhao',
+    name: 'Engenhão',
+    desc: 'Est. Olímpico Nilton Santos',
+    icon: '🏟',
+    lat: -22.8913,
+    lng: -43.2903,
+    zoom: 17
+  },
+  {
+    id: 'saojanuario',
+    name: 'São Januário',
+    desc: 'Est. Vasco da Gama (Barreira)',
+    icon: '🏟',
+    lat: -22.8911,
+    lng: -43.2282,
+    zoom: 17
+  }
+];
+
+// ── OBJECT LIBRARY ──
+const OBJECT_LIBRARY = [
+  // ── BEPE — Batalhão Especializado de Policiamento em Estádios ──
+  { id:'bepe_oficial',    icon:'⭐', name:'Oficial BEPE',       cat:'BEPE',   color:'#f59e0b' },
+  { id:'bepe_sgt',        icon:'👮', name:'Sargento BEPE',      cat:'BEPE',   color:'#3b82f6' },
+  { id:'bepe_cabo',       icon:'👮', name:'Cabo BEPE',          cat:'BEPE',   color:'#60a5fa' },
+  { id:'bepe_soldado',    icon:'👮', name:'Soldado BEPE',       cat:'BEPE',   color:'#93c5fd' },
+  { id:'bepe_equipe',     icon:'👥', name:'Equipe BEPE',        cat:'BEPE',   color:'#2563eb' },
+  { id:'bepe_comandante', icon:'🎖', name:'Cmt BEPE',           cat:'BEPE',   color:'#b45309' },
+
+  // ── GAM — Grupamento Aeromóvel ──
+  { id:'gam_piloto',      icon:'🚁', name:'Piloto GAM',         cat:'GAM',    color:'#0891b2' },
+  { id:'gam_tripulante',  icon:'👤', name:'Tripulante GAM',     cat:'GAM',    color:'#06b6d4' },
+  { id:'gam_atirador',    icon:'🎯', name:'Atirador GAM',       cat:'GAM',    color:'#ef4444' },
+  { id:'gam_equipe',      icon:'👥', name:'Equipe GAM',         cat:'GAM',    color:'#22d3ee' },
+  { id:'gam_helicóptero', icon:'🚁', name:'Helicóptero',        cat:'GAM',    color:'#155e75' },
+
+  // ── RPMONT — Regimento de Polícia Montada ──
+  { id:'rpmont_cavaleiro',icon:'🐴', name:'Cavaleiro RPMONT',   cat:'RPMONT', color:'#854d0e' },
+  { id:'rpmont_equipe',   icon:'👥', name:'Equipe RPMONT',      cat:'RPMONT', color:'#a16207' },
+  { id:'rpmont_oficial',  icon:'⭐', name:'Oficial RPMONT',     cat:'RPMONT', color:'#ca8a04' },
+  { id:'rpmont_pelotao',  icon:'🐎', name:'Pelotão Montado',    cat:'RPMONT', color:'#713f12' },
+
+  // ── BAC — Batalhão de Ações com Cães ──
+  { id:'bac_condutor',    icon:'🐕', name:'Condutor BAC',       cat:'BAC',    color:'#16a34a' },
+  { id:'bac_cao',         icon:'🦮', name:'Cão BAC',            cat:'BAC',    color:'#15803d' },
+  { id:'bac_equipe',      icon:'👥', name:'Equipe BAC',         cat:'BAC',    color:'#22c55e' },
+  { id:'bac_oficial',     icon:'⭐', name:'Oficial BAC',        cat:'BAC',    color:'#166534' },
+
+  // ── RECOM — Rondas Especiais e Controle de Multidões ──
+  { id:'recom_tropa',     icon:'🛡', name:'Tropa RECOM',        cat:'RECOM',  color:'#7c3aed' },
+  { id:'recom_pelotao',   icon:'👥', name:'Pelotão RECOM',      cat:'RECOM',  color:'#8b5cf6' },
+  { id:'recom_oficial',   icon:'⭐', name:'Oficial RECOM',      cat:'RECOM',  color:'#6d28d9' },
+  { id:'recom_escudo',    icon:'🔰', name:'Linha Escudo',       cat:'RECOM',  color:'#a78bfa' },
+  { id:'recom_gm',        icon:'💨', name:'Gás/Munição',        cat:'RECOM',  color:'#c4b5fd' },
+
+  // ── Efetivo Geral ──
+  { id:'policial',        icon:'👮', name:'Policial',            cat:'Efetivo Geral', color:'#3b82f6' },
+  { id:'comandante',      icon:'⭐', name:'Comandante',          cat:'Efetivo Geral', color:'#f59e0b' },
+  { id:'atirador',        icon:'🎯', name:'Atirador',            cat:'Efetivo Geral', color:'#ef4444' },
+  { id:'observador',      icon:'👁', name:'Observador',           cat:'Efetivo Geral', color:'#8b5cf6' },
+  { id:'socorrista',      icon:'🏥', name:'Socorrista',          cat:'Efetivo Geral', color:'#22c55e' },
+  { id:'negociador',      icon:'🗣', name:'Negociador',           cat:'Efetivo Geral', color:'#0ea5e9' },
+
+  // ── Veículos ──
+  { id:'viatura',         icon:'🚔', name:'Viatura',             cat:'Veículos',      color:'#3b82f6' },
+  { id:'ambulancia',      icon:'🚑', name:'Ambulância',          cat:'Veículos',      color:'#f43f5e' },
+  { id:'blindado',        icon:'🛡', name:'Blindado',             cat:'Veículos',      color:'#64748b' },
+  { id:'moto',            icon:'🏍', name:'Moto',                 cat:'Veículos',      color:'#0ea5e9' },
+  { id:'caveirão',        icon:'🚛', name:'Caveirão',            cat:'Veículos',      color:'#1e293b' },
+  { id:'onibus',          icon:'🚌', name:'Ônibus Tropa',        cat:'Veículos',      color:'#475569' },
+  { id:'van',             icon:'🚐', name:'Van Operacional',     cat:'Veículos',      color:'#334155' },
+
+  // ── Equipamentos / Barreiras ──
+  { id:'barricada',       icon:'🚧', name:'Barricada',           cat:'Equipamentos',  color:'#fb923c' },
+  { id:'cone',            icon:'🔶', name:'Cone',                cat:'Equipamentos',  color:'#f97316' },
+  { id:'gradil',          icon:'🏗', name:'Gradil',               cat:'Equipamentos',  color:'#a3a3a3' },
+  { id:'fita',            icon:'🟡', name:'Fita Isolamento',     cat:'Equipamentos',  color:'#eab308' },
+  { id:'revista',         icon:'🔍', name:'Ponto Revista',       cat:'Equipamentos',  color:'#d97706' },
+  { id:'detector',        icon:'📡', name:'Detector Metal',      cat:'Equipamentos',  color:'#78716c' },
+
+  // ── Pontos Táticos ──
+  { id:'critico',         icon:'⚠', name:'Ponto Crítico',        cat:'Pontos Táticos', color:'#ef4444' },
+  { id:'entrada',         icon:'🚪', name:'Entrada/Saída',       cat:'Pontos Táticos', color:'#22d3ee' },
+  { id:'comando',         icon:'📡', name:'Posto Comando',       cat:'Pontos Táticos', color:'#a855f7' },
+  { id:'perimetro',       icon:'🔵', name:'Perímetro',           cat:'Pontos Táticos', color:'#60a5fa' },
+  { id:'camera',          icon:'📹', name:'Câmera',              cat:'Pontos Táticos', color:'#6b7280' },
+  { id:'concentracao',    icon:'🎯', name:'Pt. Concentração',    cat:'Pontos Táticos', color:'#dc2626' },
+  { id:'dispersao',       icon:'💨', name:'Rota Dispersão',      cat:'Pontos Táticos', color:'#f97316' },
+  { id:'socorro',         icon:'🏥', name:'Ponto Socorro',       cat:'Pontos Táticos', color:'#16a34a' },
+];
+
+// ── MAP TILE LAYERS ──
+const TILE_LAYERS = {
+  osm: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attr: '&copy; OpenStreetMap contributors'
+  },
+  topo: {
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attr: '&copy; OpenTopoMap'
+  },
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attr: '&copy; CartoDB'
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attr: '&copy; Esri'
+  }
+};
+
+// ╔════════════════════════════════════════════════════════════════╗
+// ║                         MAIN APP                              ║
+// ╚════════════════════════════════════════════════════════════════╝
+class App {
+  constructor() {
+    this.map = null;
+    this.currentMode = 'pan';
+    this.selectedObjectType = null;
+    this.selectedMarkerId = null;
+    this.objectCounter = 0;
+    this.markers = {}; // id -> { marker, data }
+    this.showLabels = true;
+    this.markerSize = 36;
+    this.currentTileLayer = null;
+    this.labelsOverlay = null;
+    this.currentStadium = null;
+
+    this.init();
+  }
+
+  init() {
+    this.initMap();
+    this.buildStadiumCards();
+    this.buildObjectLibrary();
+    this.setupToolbar();
+    this.setupPanelToggles();
+    this.setupUpload();
+    this.setupMapStyle();
+    this.setupExport();
+    this.setupGoTo();
+
+    // Load Maracanã by default
+    this.loadStadium('maracana');
+  }
+
+  // ── Initialize Leaflet Map ──
+  initMap() {
+    this.map = L.map('map', {
+      center: [-22.9121, -43.2302],
+      zoom: 17,
+      zoomControl: true,
+      attributionControl: true
+    });
+    this.bearing = 0;
+
+    this.setTileLayer('osm');
+
+    // Map events
+    this.map.on('click', (e) => this.onMapClick(e));
+    this.map.on('mousemove', (e) => {
+      document.getElementById('status-coords').textContent =
+        `Coords: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+      // Sync: enviar posição do cursor (throttled)
+      if (window.sync && !this._cursorThrottle) {
+        this._cursorThrottle = true;
+        setTimeout(() => { this._cursorThrottle = false; }, 200);
+        window.sync.sendCursor(e.latlng.lat, e.latlng.lng);
+      }
+    });
+    this.map.on('zoomend', () => {
+      document.getElementById('status-zoom').textContent = `Zoom: ${this.map.getZoom()}`;
+    });
+  }
+
+  setTileLayer(style) {
+    if (this.currentTileLayer) this.map.removeLayer(this.currentTileLayer);
+    if (this.labelsOverlay) { this.map.removeLayer(this.labelsOverlay); this.labelsOverlay = null; }
+    const layer = TILE_LAYERS[style] || TILE_LAYERS.osm;
+    this.currentTileLayer = L.tileLayer(layer.url, {
+      attribution: layer.attr,
+      maxZoom: 19,
+      subdomains: 'abc'
+    }).addTo(this.map);
+    // Add street labels overlay on satellite
+    if (style === 'satellite') {
+      this.labelsOverlay = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+        attribution: '',
+        maxZoom: 19,
+        subdomains: 'abcd',
+        pane: 'overlayPane'
+      }).addTo(this.map);
+    }
+  }
+
+  // ── Stadium Cards ──
+  buildStadiumCards() {
+    const container = document.getElementById('stadium-cards');
+    STADIUMS.forEach(s => {
+      const card = document.createElement('div');
+      card.className = 'stadium-card';
+      card.dataset.id = s.id;
+      card.innerHTML = `
+        <span class="stadium-icon">${s.icon}</span>
+        <div class="stadium-info">
+          <div class="name">${s.name}</div>
+          <div class="desc">${s.desc}</div>
+        </div>
+      `;
+      card.addEventListener('click', () => this.loadStadium(s.id));
+      container.appendChild(card);
+    });
+  }
+
+  loadStadium(id) {
+    const s = STADIUMS.find(st => st.id === id);
+    if (!s) return;
+    this.currentStadium = s;
+    this.map.setView([s.lat, s.lng], s.zoom);
+    document.getElementById('input-lat').value = s.lat;
+    document.getElementById('input-lng').value = s.lng;
+    document.getElementById('status-local').textContent = `Local: ${s.name}`;
+
+    // Update active card
+    document.querySelectorAll('.stadium-card').forEach(c => c.classList.remove('active'));
+    document.querySelector(`.stadium-card[data-id="${id}"]`)?.classList.add('active');
+
+    toast(`📍 ${s.name} carregado`, 'success');
+
+    // Sync: notificar outros usuários
+    if (window.sync) window.sync.sendStadium(id);
+  }
+
+  // ── Object Library ──
+  buildObjectLibrary() {
+    const grid = document.getElementById('obj-grid');
+    let currentCat = '';
+
+    OBJECT_LIBRARY.forEach(def => {
+      if (def.cat !== currentCat) {
+        currentCat = def.cat;
+        const catLabel = document.createElement('div');
+        catLabel.className = 'obj-category';
+        catLabel.textContent = currentCat;
+        catLabel.style.gridColumn = '1 / -1';
+        grid.appendChild(catLabel);
+      }
+
+      const card = document.createElement('div');
+      card.className = 'obj-card';
+      card.dataset.type = def.id;
+      card.innerHTML = `<span class="obj-icon">${def.icon}</span><span class="obj-name">${def.name}</span>`;
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.obj-card').forEach(c => c.classList.remove('active'));
+        if (this.selectedObjectType === def.id) {
+          this.selectedObjectType = null;
+          this.setMode('pan');
+        } else {
+          card.classList.add('active');
+          this.selectedObjectType = def.id;
+          this.setMode('place');
+        }
+      });
+      grid.appendChild(card);
+    });
+  }
+
+  // ── Toolbar ──
+  setupToolbar() {
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => this.setMode(btn.dataset.mode));
+    });
+
+    document.getElementById('btn-toggle-labels').addEventListener('click', () => {
+      this.showLabels = !this.showLabels;
+      this.refreshAllMarkers();
+      toast(this.showLabels ? 'Rótulos visíveis' : 'Rótulos ocultos', 'info');
+    });
+
+    document.getElementById('btn-clear-all').addEventListener('click', () => {
+      if (Object.keys(this.markers).length === 0) return;
+      Object.values(this.markers).forEach(m => this.map.removeLayer(m.marker));
+      this.markers = {};
+      this.objectCounter = 0;
+      this.selectedMarkerId = null;
+      this.updateTree();
+      this.updateCounts();
+      this.updateProps();
+      toast('Todos os elementos removidos', 'info');
+      // Sync: notificar outros usuários
+      if (window.sync) window.sync.sendClear();
+    });
+
+    document.getElementById('marker-size').addEventListener('input', (e) => {
+      this.markerSize = parseInt(e.target.value);
+      this.refreshAllMarkers();
+    });
+  }
+
+  // ── Panel Toggles ──
+  setupPanelToggles() {
+    document.querySelectorAll('.panel-header').forEach(h => {
+      h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed'));
+    });
+
+    // Mobile drawer toggles
+    const leftPanel = document.getElementById('left-panel');
+    const rightPanel = document.getElementById('right-panel');
+    const backdrop = document.getElementById('panel-backdrop');
+    const toggleLeft = document.getElementById('toggle-left');
+    const toggleRight = document.getElementById('toggle-right');
+
+    const closeAll = () => {
+      leftPanel.classList.remove('open');
+      rightPanel.classList.remove('open');
+      backdrop.classList.remove('show');
+      toggleLeft.classList.remove('active');
+      toggleRight.classList.remove('active');
+    };
+
+    toggleLeft.addEventListener('click', () => {
+      const opening = !leftPanel.classList.contains('open');
+      closeAll();
+      if (opening) {
+        leftPanel.classList.add('open');
+        backdrop.classList.add('show');
+        toggleLeft.classList.add('active');
+      }
+    });
+
+    toggleRight.addEventListener('click', () => {
+      const opening = !rightPanel.classList.contains('open');
+      closeAll();
+      if (opening) {
+        rightPanel.classList.add('open');
+        backdrop.classList.add('show');
+        toggleRight.classList.add('active');
+      }
+    });
+
+    backdrop.addEventListener('click', closeAll);
+
+    // Close panels on map interaction (mobile)
+    this.map.on('movestart', () => {
+      if (window.innerWidth <= 768) closeAll();
+    });
+
+    // Handle resize: reset panels when going back to desktop
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 768) {
+        closeAll();
+        this.map.invalidateSize();
+      }
+    });
+  }
+
+  // ── Upload photo reference ──
+  setupUpload() {
+    const zone = document.getElementById('upload-zone');
+    const input = document.getElementById('upload-input');
+    zone.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      if (!input.files.length) return;
+      const file = input.files[0];
+      const url = URL.createObjectURL(file);
+      const preview = document.getElementById('photo-preview');
+      preview.src = url;
+      preview.style.display = 'block';
+      zone.textContent = '✅ Foto anexada (clique para trocar)';
+      toast('Foto de referência anexada', 'success');
+    });
+  }
+
+  // ── Map Style ──
+  setupMapStyle() {
+    document.getElementById('map-style').addEventListener('change', (e) => {
+      this.setTileLayer(e.target.value);
+      if (window.sync) window.sync.sendTile(e.target.value);
+    });
+
+    // ── Smooth Rotation System (Google Maps style) ──
+    const rotSlider = document.getElementById('map-rotation');
+    const rotValue = document.getElementById('rotation-value');
+    const mapWrapper = document.getElementById('map-wrapper');
+    const compassRing = document.getElementById('compass-ring');
+    const compassDeg = document.getElementById('compass-deg');
+    const mapEl = document.getElementById('map-container');
+
+    // Core rotation: updates visuals without transition class management
+    const setRotation = (deg) => {
+      this.bearing = ((deg % 360) + 360) % 360;
+      const rad = this.bearing * Math.PI / 180;
+      // Dynamic scale: covers corners on any aspect ratio
+      const w = mapEl.offsetWidth || 1;
+      const h = mapEl.offsetHeight || 1;
+      const sinA = Math.abs(Math.sin(rad));
+      const cosA = Math.abs(Math.cos(rad));
+      // How much bigger rotated rect needs to be to cover original
+      const needW = w * cosA + h * sinA;
+      const needH = w * sinA + h * cosA;
+      // Wrapper is 150%, so actual map is 1.5x. Scale = needed / available
+      const available = 1.5;
+      const scale = Math.max(needW / (w * available), needH / (h * available), 1);
+      mapWrapper.style.transform = `rotate(${this.bearing}deg) scale(${scale})`;
+      // Compass rotates inversely
+      compassRing.style.transform = `rotate(${-this.bearing}deg)`;
+      compassDeg.textContent = `${Math.round(this.bearing)}°`;
+      rotSlider.value = Math.round(this.bearing);
+      rotValue.textContent = Math.round(this.bearing);
+      document.getElementById('status-bearing').textContent = `🧭 ${Math.round(this.bearing)}°`;
+    };
+
+    // Smooth rotation: adds CSS transition, rotates, removes after done
+    const smoothRotate = (deg, snapBack = false) => {
+      mapWrapper.classList.add(snapBack ? 'snap' : 'smooth');
+      setRotation(deg);
+      const onEnd = () => {
+        mapWrapper.classList.remove('smooth', 'snap');
+        mapWrapper.removeEventListener('transitionend', onEnd);
+      };
+      mapWrapper.addEventListener('transitionend', onEnd);
+      // Fallback cleanup
+      setTimeout(onEnd, 800);
+    };
+
+    // Immediate rotation (no transition — used during drag gestures)
+    const immediateRotate = (deg) => {
+      mapWrapper.classList.remove('smooth', 'snap');
+      setRotation(deg);
+    };
+
+    // Expose for inline onclick & class method
+    this.applyRotation = smoothRotate;
+
+    // Slider: immediate while dragging, no transition needed
+    let sliderDragging = false;
+    rotSlider.addEventListener('mousedown', () => { sliderDragging = true; });
+    rotSlider.addEventListener('touchstart', () => { sliderDragging = true; }, { passive: true });
+    rotSlider.addEventListener('input', (e) => {
+      if (sliderDragging) immediateRotate(parseInt(e.target.value));
+      else smoothRotate(parseInt(e.target.value));
+    });
+    window.addEventListener('mouseup', () => { sliderDragging = false; });
+    window.addEventListener('touchend', () => { sliderDragging = false; });
+
+    // ── Right-click drag to rotate (Google Maps style) ──
+    let rotDrag = null;
+    let rotVelocity = 0;
+    let lastDragTime = 0;
+    let lastDragDeg = 0;
+    let inertiaRAF = null;
+
+    // Prevent context menu on map so right-click drag works
+    mapEl.addEventListener('contextmenu', (e) => {
+      if (this.currentMode === 'pan') e.preventDefault();
+    });
+
+    mapEl.addEventListener('mousedown', (e) => {
+      // Right-click (button 2) OR Ctrl+left-click to rotate
+      if (e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (inertiaRAF) { cancelAnimationFrame(inertiaRAF); inertiaRAF = null; }
+        mapWrapper.classList.remove('smooth', 'snap');
+        rotDrag = { startX: e.clientX, startY: e.clientY, startBearing: this.bearing };
+        rotVelocity = 0;
+        lastDragTime = performance.now();
+        lastDragDeg = this.bearing;
+        this.map.dragging.disable();
+        mapEl.style.cursor = 'crosshair';
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!rotDrag) return;
+      const dx = e.clientX - rotDrag.startX;
+      const newDeg = rotDrag.startBearing + dx * 0.5;
+
+      // Track velocity for inertia
+      const now = performance.now();
+      const dt = now - lastDragTime;
+      if (dt > 0) {
+        const normNew = ((newDeg % 360) + 360) % 360;
+        const normLast = ((lastDragDeg % 360) + 360) % 360;
+        let dDeg = normNew - normLast;
+        if (dDeg > 180) dDeg -= 360;
+        if (dDeg < -180) dDeg += 360;
+        rotVelocity = dDeg / dt * 16; // normalize to ~60fps
+      }
+      lastDragTime = now;
+      lastDragDeg = newDeg;
+
+      immediateRotate(newDeg);
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (!rotDrag) return;
+      rotDrag = null;
+      if (this.currentMode === 'pan') this.map.dragging.enable();
+      mapEl.style.cursor = '';
+
+      // Inertia: coast to a stop
+      if (Math.abs(rotVelocity) > 0.3) {
+        const decay = 0.92;
+        const step = () => {
+          rotVelocity *= decay;
+          if (Math.abs(rotVelocity) < 0.05) {
+            rotVelocity = 0;
+            inertiaRAF = null;
+            return;
+          }
+          immediateRotate(this.bearing + rotVelocity);
+          inertiaRAF = requestAnimationFrame(step);
+        };
+        inertiaRAF = requestAnimationFrame(step);
+      }
+    });
+
+    // ── Two-finger touch rotation with inertia ──
+    let touchStartAngle = null;
+    let touchVelocity = 0;
+    let lastTouchTime = 0;
+    let lastTouchBearing = 0;
+
+    mapEl.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        if (inertiaRAF) { cancelAnimationFrame(inertiaRAF); inertiaRAF = null; }
+        mapWrapper.classList.remove('smooth', 'snap');
+        const dx = e.touches[1].clientX - e.touches[0].clientX;
+        const dy = e.touches[1].clientY - e.touches[0].clientY;
+        touchStartAngle = { angle: Math.atan2(dy, dx) * 180 / Math.PI, startBearing: this.bearing };
+        touchVelocity = 0;
+        lastTouchTime = performance.now();
+        lastTouchBearing = this.bearing;
+      }
+    }, { passive: true });
+
+    mapEl.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2 && touchStartAngle) {
+        const dx = e.touches[1].clientX - e.touches[0].clientX;
+        const dy = e.touches[1].clientY - e.touches[0].clientY;
+        const currentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+        const delta = currentAngle - touchStartAngle.angle;
+        const newBearing = touchStartAngle.startBearing + delta;
+
+        // Track velocity
+        const now = performance.now();
+        const dt = now - lastTouchTime;
+        if (dt > 0) {
+          const normNew = ((newBearing % 360) + 360) % 360;
+          const normLast = ((lastTouchBearing % 360) + 360) % 360;
+          let dDeg = normNew - normLast;
+          if (dDeg > 180) dDeg -= 360;
+          if (dDeg < -180) dDeg += 360;
+          touchVelocity = dDeg / dt * 16;
+        }
+        lastTouchTime = now;
+        lastTouchBearing = newBearing;
+
+        immediateRotate(newBearing);
+      }
+    }, { passive: true });
+
+    mapEl.addEventListener('touchend', (e) => {
+      if (touchStartAngle && e.touches.length < 2) {
+        touchStartAngle = null;
+        // Inertia for touch
+        if (Math.abs(touchVelocity) > 0.3) {
+          const decay = 0.92;
+          const step = () => {
+            touchVelocity *= decay;
+            if (Math.abs(touchVelocity) < 0.05) {
+              touchVelocity = 0;
+              inertiaRAF = null;
+              return;
+            }
+            immediateRotate(this.bearing + touchVelocity);
+            inertiaRAF = requestAnimationFrame(step);
+          };
+          inertiaRAF = requestAnimationFrame(step);
+        }
+      }
+    }, { passive: true });
+  }
+
+  // ── Go To coords ──
+  setupGoTo() {
+    document.getElementById('btn-goto').addEventListener('click', () => {
+      const lat = parseFloat(document.getElementById('input-lat').value);
+      const lng = parseFloat(document.getElementById('input-lng').value);
+      if (isNaN(lat) || isNaN(lng)) { toast('Coordenadas inválidas', 'error'); return; }
+      this.map.setView([lat, lng], 17);
+      document.getElementById('status-local').textContent = `Local: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      toast('Navegando para coordenadas...', 'info');
+    });
+  }
+
+  // ── Export ──
+  setupExport() {
+    document.getElementById('btn-export').addEventListener('click', () => {
+      // Use leaflet-image approach: render map to canvas
+      this.exportMapAsPng();
+    });
+  }
+
+  async exportMapAsPng() {
+    toast('Gerando imagem...', 'info');
+    try {
+      // Use html2canvas-like approach via domtoimage or simple screenshot
+      // For simplicity, we capture the map container
+      const mapEl = document.getElementById('map');
+      const canvas = document.createElement('canvas');
+      const rect = mapEl.getBoundingClientRect();
+      canvas.width = rect.width * 2;
+      canvas.height = rect.height * 2;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(2, 2);
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, rect.width, rect.height);
+
+      // Draw tile layer as background
+      // Since we can't easily capture Leaflet tiles, we'll use a different approach
+      // We'll create a summary image with markers info
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, rect.width, rect.height);
+
+      // Title
+      ctx.fillStyle = '#58a6ff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🎯 MAPA TÁTICO — ' + (this.currentStadium?.name || 'Local'), rect.width/2, 30);
+
+      // Coords
+      const center = this.map.getCenter();
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(`Coords: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)} | Zoom: ${this.map.getZoom()}`, rect.width/2, 50);
+
+      // List all placed objects
+      ctx.textAlign = 'left';
+      ctx.font = '14px sans-serif';
+      let y = 80;
+      const entries = Object.values(this.markers);
+      if (entries.length === 0) {
+        ctx.fillStyle = '#6e7681';
+        ctx.fillText('Nenhum elemento posicionado', 20, y);
+      } else {
+        entries.forEach((m, i) => {
+          const def = OBJECT_LIBRARY.find(d => d.id === m.data.typeId);
+          ctx.fillStyle = def?.color || '#fff';
+          ctx.fillText(`${def?.icon || '●'} ${m.data.label}`, 20, y);
+          ctx.fillStyle = '#6e7681';
+          ctx.fillText(`(${m.data.lat.toFixed(5)}, ${m.data.lng.toFixed(5)})`, 200, y);
+          if (m.data.notes) {
+            ctx.fillStyle = '#484f58';
+            ctx.fillText(`— ${m.data.notes}`, 380, y);
+          }
+          y += 22;
+        });
+      }
+
+      // Watermark
+      ctx.fillStyle = 'rgba(255,255,255,.3)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('Mapa Tático PM — ' + new Date().toLocaleString('pt-BR'), rect.width - 10, rect.height - 10);
+
+      const link = document.createElement('a');
+      link.download = `mapa-tatico-${this.currentStadium?.id || 'custom'}-${Date.now()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      toast('Relatório exportado!', 'success');
+    } catch(e) {
+      toast('Erro ao exportar: ' + e.message, 'error');
+    }
+  }
+
+  // ── Mode Management ──
+  setMode(mode) {
+    this.currentMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.mode-btn[data-mode="${mode}"]`)?.classList.add('active');
+
+    const names = { pan:'Navegar', place:'Posicionar', delete:'Deletar' };
+    document.getElementById('status-mode').textContent = `Modo: ${names[mode] || mode}`;
+
+    // Change map cursor
+    const mapEl = document.getElementById('map');
+    if (mode === 'place') {
+      mapEl.style.cursor = 'crosshair';
+      this.map.dragging.disable();
+    } else if (mode === 'delete') {
+      mapEl.style.cursor = 'not-allowed';
+      this.map.dragging.disable();
+    } else {
+      mapEl.style.cursor = '';
+      this.map.dragging.enable();
+    }
+
+    if (mode !== 'place') {
+      this.selectedObjectType = null;
+      document.querySelectorAll('.obj-card').forEach(c => c.classList.remove('active'));
+    }
+  }
+
+  // ── Map Click ──
+  onMapClick(e) {
+    if (this.currentMode === 'place') {
+      this.placeObject(e.latlng.lat, e.latlng.lng);
+    }
+  }
+
+  // ── Place Object ──
+  placeObject(lat, lng) {
+    if (!this.selectedObjectType) {
+      toast('Selecione um tipo de objeto à direita', 'info');
+      return;
+    }
+    const def = OBJECT_LIBRARY.find(d => d.id === this.selectedObjectType);
+    if (!def) return;
+
+    this.objectCounter++;
+    const id = 'obj_' + this.objectCounter;
+    const data = {
+      id,
+      typeId: def.id,
+      lat,
+      lng,
+      label: `${def.name} ${this.objectCounter}`,
+      notes: '',
+      customColor: def.color,
+      status: 'ativo'
+    };
+
+    const marker = this.createMarker(data);
+    this.markers[id] = { marker, data };
+    this.updateTree();
+    this.updateCounts();
+    this.updateProps();
+
+    // Auto-open edit popup on placement
+    this.openEditPopup(id);
+    toast(`${def.icon} ${def.name} posicionado — edite o nome`, 'info');
+
+    // Sync: notificar outros usuários
+    if (window.sync) window.sync.sendPlace(data);
+  }
+
+  // ── Build edit popup HTML ──
+  buildEditPopupHTML(data) {
+    const def = OBJECT_LIBRARY.find(d => d.id === data.typeId);
+    const statusOptions = ['ativo','em espera','em deslocamento','finalizado']
+      .map(s => `<option value="${s}" ${data.status === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`)
+      .join('');
+
+    return `
+      <div class="edit-popup">
+        <div class="edit-popup-header">
+          <span class="edit-popup-icon">${def?.icon || '●'}</span>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--txt)">${def?.name || 'Objeto'}</div>
+            <div class="edit-popup-type">${def?.cat || ''}</div>
+          </div>
+        </div>
+        <div class="edit-field">
+          <label>✏️ Nome / Identificação</label>
+          <input type="text" id="popup-label-${data.id}" value="${data.label}" placeholder="Ex: Equipe GPR Alpha, Policial Portão Sul..." autofocus onkeydown="if(event.key==='Enter')window.app.saveFromPopup('${data.id}')">
+        </div>
+        <div class="edit-field">
+          <label>📝 Observações</label>
+          <textarea id="popup-notes-${data.id}" placeholder="Ex: Armamento, efetivo, missão...">${data.notes || ''}</textarea>
+        </div>
+        <div class="edit-field">
+          <label>📊 Status</label>
+          <select id="popup-status-${data.id}">${statusOptions}</select>
+        </div>
+        <div class="edit-coords">
+          <div class="edit-field">
+            <label>📍 Lat</label>
+            <input type="number" id="popup-lat-${data.id}" value="${data.lat.toFixed(6)}" step="0.00001">
+          </div>
+          <div class="edit-field">
+            <label>📍 Lng</label>
+            <input type="number" id="popup-lng-${data.id}" value="${data.lng.toFixed(6)}" step="0.00001">
+          </div>
+        </div>
+        <div class="edit-field">
+          <label>🎨 Cor do Marcador</label>
+          <div class="edit-color-row">
+            <input type="color" id="popup-color-${data.id}" value="${data.customColor}" oninput="this.nextElementSibling.textContent=this.value">
+            <span>${data.customColor}</span>
+          </div>
+        </div>
+        <div class="edit-popup-actions">
+          <button class="btn btn-primary" id="popup-save-${data.id}" onclick="window.app.saveFromPopup('${data.id}')">✅ Salvar</button>
+          <button class="btn btn-danger" id="popup-del-${data.id}" onclick="window.app.deleteObject('${data.id}')">🗑 Remover</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Open edit popup on marker ──
+  openEditPopup(id) {
+    const m = this.markers[id];
+    if (!m) return;
+
+    this.selectedMarkerId = id;
+    const popupContent = this.buildEditPopupHTML(m.data);
+
+    m.marker.unbindPopup();
+    m.marker.bindPopup(popupContent, {
+      maxWidth: 300,
+      minWidth: 260,
+      closeOnClick: false,
+      autoClose: false,
+      className: 'tactical-edit-popup'
+    }).openPopup();
+
+    // Focus label input after popup opens
+    m.marker.on('popupopen', () => {
+      const labelInput = document.getElementById(`popup-label-${m.data.id}`);
+      if (labelInput) {
+        labelInput.focus();
+        labelInput.select();
+      }
+    });
+
+    this.updateTree();
+  }
+
+  // ── Save data from popup fields ──
+  saveFromPopup(id) {
+    const m = this.markers[id];
+    if (!m) return;
+
+    const label = document.getElementById(`popup-label-${id}`)?.value || m.data.label;
+    const notes = document.getElementById(`popup-notes-${id}`)?.value || '';
+    const status = document.getElementById(`popup-status-${id}`)?.value || 'ativo';
+    const lat = parseFloat(document.getElementById(`popup-lat-${id}`)?.value) || m.data.lat;
+    const lng = parseFloat(document.getElementById(`popup-lng-${id}`)?.value) || m.data.lng;
+    const color = document.getElementById(`popup-color-${id}`)?.value || m.data.customColor;
+
+    m.data.label = label;
+    m.data.notes = notes;
+    m.data.status = status;
+    m.data.lat = lat;
+    m.data.lng = lng;
+    m.data.customColor = color;
+
+    // Update marker position if changed
+    m.marker.setLatLng([lat, lng]);
+
+    // Close popup and refresh marker icon
+    m.marker.closePopup();
+    this.refreshSingleMarker(id);
+    this.updateTree();
+    this.updateProps();
+    toast(`✅ "${label}" salvo`, 'success');
+
+    // Sync: notificar outros usuários
+    if (window.sync) window.sync.sendEdit(id, { label, notes, status, lat, lng, customColor: color });
+  }
+
+  // ── Create Leaflet Marker ──
+  createMarker(data) {
+    const def = OBJECT_LIBRARY.find(d => d.id === data.typeId);
+    const size = this.markerSize;
+    const color = data.customColor || def?.color || '#888';
+
+    // Status indicator
+    const statusColors = { 'ativo':'#3fb950', 'em espera':'#d29922', 'em deslocamento':'#58a6ff', 'finalizado':'#6e7681' };
+    const statusDot = data.status && data.status !== 'ativo'
+      ? `<span style="position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:${statusColors[data.status] || '#888'};border:2px solid rgba(0,0,0,.5)"></span>`
+      : '';
+
+    const html = `
+      <div class="tactical-marker-inner">
+        <div class="marker-shape" style="width:${size}px;height:${size}px;background:${color};position:relative">
+          <span style="font-size:${size * 0.5}px">${def?.icon || '●'}</span>
+          ${statusDot}
+        </div>
+        ${this.showLabels ? `<span class="marker-label">${data.label}</span>` : ''}
+      </div>
+    `;
+
+    const icon = L.divIcon({
+      className: 'tactical-marker',
+      html,
+      iconSize: [size, size + (this.showLabels ? 18 : 0)],
+      iconAnchor: [size / 2, size / 2]
+    });
+
+    const marker = L.marker([data.lat, data.lng], {
+      icon,
+      draggable: true,
+      zIndexOffset: 1000
+    }).addTo(this.map);
+
+    // Drag events
+    marker.on('dragend', (e) => {
+      const pos = e.target.getLatLng();
+      data.lat = pos.lat;
+      data.lng = pos.lng;
+      this.updateProps();
+      // Sync: notificar outros usuários
+      if (window.sync) window.sync.sendMove(data.id, pos.lat, pos.lng);
+    });
+
+    // Click → open edit popup
+    marker.on('click', (e) => {
+      L.DomEvent.stopPropagation(e);
+      if (this.currentMode === 'delete') {
+        this.deleteObject(data.id);
+      } else {
+        this.openEditPopup(data.id);
+      }
+    });
+
+    return marker;
+  }
+
+  // ── Refresh single marker icon ──
+  refreshSingleMarker(id) {
+    const m = this.markers[id];
+    if (!m) return;
+    const latlng = m.marker.getLatLng();
+    this.map.removeLayer(m.marker);
+    m.marker = this.createMarker(m.data);
+    this.markers[id].marker = m.marker;
+  }
+
+  // ── Refresh all marker icons ──
+  refreshAllMarkers() {
+    Object.keys(this.markers).forEach(id => this.refreshSingleMarker(id));
+  }
+
+  // ── Rotate map (called from inline onclick) ──
+  rotateMap(delta, absolute = false) {
+    if (this.applyRotation) {
+      const target = absolute ? delta : this.bearing + delta;
+      const isSnapBack = absolute && delta === 0;
+      this.applyRotation(target, isSnapBack);
+    }
+  }
+
+  // ── Select (from tree click) ──
+  selectObject(id) {
+    this.selectedMarkerId = id;
+    const m = this.markers[id];
+    if (m) {
+      this.map.panTo([m.data.lat, m.data.lng]);
+      this.openEditPopup(id);
+    }
+    this.updateTree();
+    this.updateProps();
+  }
+
+  // ── Delete ──
+  deleteObject(id) {
+    const m = this.markers[id];
+    if (!m) return;
+    const def = OBJECT_LIBRARY.find(d => d.id === m.data.typeId);
+    m.marker.closePopup();
+    this.map.removeLayer(m.marker);
+    delete this.markers[id];
+    if (this.selectedMarkerId === id) this.selectedMarkerId = null;
+    this.updateTree();
+    this.updateCounts();
+    this.updateProps();
+    toast(`${def?.icon || ''} "${m.data.label}" removido`, 'info');
+
+    // Sync: notificar outros usuários
+    if (window.sync) window.sync.sendDelete(id);
+  }
+
+  // ── Update Scene Tree ──
+  updateTree() {
+    const tree = document.getElementById('scene-tree');
+    const entries = Object.values(this.markers);
+
+    if (entries.length === 0) {
+      tree.innerHTML = '<div class="tree-empty">Nenhum elemento posicionado</div>';
+      return;
+    }
+
+    tree.innerHTML = '';
+    entries.forEach(m => {
+      const def = OBJECT_LIBRARY.find(d => d.id === m.data.typeId);
+      const statusEmoji = { 'ativo':'🟢', 'em espera':'🟡', 'em deslocamento':'🔵', 'finalizado':'⚫' };
+      const item = document.createElement('div');
+      item.className = 'tree-item' + (m.data.id === this.selectedMarkerId ? ' selected' : '');
+      item.innerHTML = `
+        <span class="dot" style="background:${m.data.customColor || def?.color || '#888'}"></span>
+        <span class="name">${def?.icon || ''} ${m.data.label}</span>
+        <span style="font-size:8px;opacity:.7" title="${m.data.status || 'ativo'}">${statusEmoji[m.data.status] || '🟢'}</span>
+        <button class="del-btn" title="Remover">✕</button>
+      `;
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.del-btn')) {
+          this.deleteObject(m.data.id);
+          return;
+        }
+        this.selectObject(m.data.id);
+      });
+      tree.appendChild(item);
+    });
+  }
+
+  // ── Update Properties Panel ──
+  updateProps() {
+    const panel = document.getElementById('props-content');
+    const m = this.markers[this.selectedMarkerId];
+
+    if (!m) {
+      panel.innerHTML = '<div class="tree-empty">Selecione um elemento ou clique no mapa</div>';
+      return;
+    }
+
+    const def = OBJECT_LIBRARY.find(d => d.id === m.data.typeId);
+    const statusColors = { 'ativo':'var(--success)', 'em espera':'var(--warn)', 'em deslocamento':'var(--accent)', 'finalizado':'var(--txt3)' };
+    panel.innerHTML = `
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:22px">${def?.icon || '●'}</span>
+        <div>
+          <div style="font-size:13px;font-weight:700">${m.data.label}</div>
+          <div style="font-size:10px;color:${statusColors[m.data.status] || 'var(--txt3)'}">${(m.data.status || 'ativo').toUpperCase()}</div>
+        </div>
+      </div>
+      <div class="prop-grid">
+        <label>Nome</label>
+        <input type="text" id="prop-label" value="${m.data.label}">
+        <label>Status</label>
+        <select id="prop-status" style="background:var(--bg3);border:1px solid var(--border);color:var(--txt);padding:3px 6px;border-radius:4px;font-size:11px">
+          <option value="ativo" ${m.data.status==='ativo'?'selected':''}>🟢 Ativo</option>
+          <option value="em espera" ${m.data.status==='em espera'?'selected':''}>🟡 Em Espera</option>
+          <option value="em deslocamento" ${m.data.status==='em deslocamento'?'selected':''}>🔵 Em Deslocamento</option>
+          <option value="finalizado" ${m.data.status==='finalizado'?'selected':''}>⚫ Finalizado</option>
+        </select>
+        <label>Notas</label>
+        <input type="text" id="prop-notes" value="${m.data.notes || ''}" placeholder="Observações...">
+        <label>Cor</label>
+        <input type="color" id="prop-color" value="${m.data.customColor}" style="width:60px;height:24px;border:1px solid var(--border);border-radius:4px;cursor:pointer">
+        <label>Lat</label>
+        <input type="number" id="prop-lat" value="${m.data.lat.toFixed(6)}" step="0.00001">
+        <label>Lng</label>
+        <input type="number" id="prop-lng" value="${m.data.lng.toFixed(6)}" step="0.00001">
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn btn-primary btn-sm" style="flex:1" id="prop-edit-popup">✏️ Editar no Mapa</button>
+        <button class="btn btn-danger btn-sm" id="prop-delete">🗑</button>
+      </div>
+    `;
+
+    // Live-update bindings
+    const applyChange = () => {
+      m.data.label = panel.querySelector('#prop-label').value;
+      m.data.status = panel.querySelector('#prop-status').value;
+      m.data.notes = panel.querySelector('#prop-notes').value;
+      m.data.customColor = panel.querySelector('#prop-color').value;
+      const lat = parseFloat(panel.querySelector('#prop-lat').value);
+      const lng = parseFloat(panel.querySelector('#prop-lng').value);
+      if (!isNaN(lat)) m.data.lat = lat;
+      if (!isNaN(lng)) m.data.lng = lng;
+      m.marker.setLatLng([m.data.lat, m.data.lng]);
+      this.refreshSingleMarker(m.data.id);
+      this.updateTree();
+    };
+
+    panel.querySelector('#prop-label').addEventListener('change', applyChange);
+    panel.querySelector('#prop-status').addEventListener('change', applyChange);
+    panel.querySelector('#prop-notes').addEventListener('change', applyChange);
+    panel.querySelector('#prop-color').addEventListener('input', applyChange);
+    panel.querySelector('#prop-lat').addEventListener('change', applyChange);
+    panel.querySelector('#prop-lng').addEventListener('change', applyChange);
+    panel.querySelector('#prop-edit-popup').addEventListener('click', () => this.openEditPopup(m.data.id));
+    panel.querySelector('#prop-delete').addEventListener('click', () => this.deleteObject(m.data.id));
+  }
+
+  // ── Update Counts ──
+  updateCounts() {
+    const count = Object.keys(this.markers).length;
+    document.getElementById('obj-count').textContent = count;
+    document.getElementById('status-objects').textContent = `Elementos: ${count}`;
+  }
+}
+
+// ╔════════════════════════════════════════════════════════════════╗
+// ║     SINCRONIZAÇÃO P2P EM TEMPO REAL (PeerJS / WebRTC)         ║
+// ║     Sem servidor — conexão direta entre dispositivos          ║
+// ╚════════════════════════════════════════════════════════════════╝
+class SyncManager {
+  constructor(app) {
+    this.app = app;
+    this.peer = null;
+    this.connections = {};  // peerId -> DataConnection
+    this.isHost = false;
+    this.roomId = null;
+    this.myName = '';
+    this.members = {};      // peerId -> { name }
+    this.suppressSync = false;
+    this._remoteCursors = {};
+  }
+
+  // ── Gerar código de sala de 6 caracteres ──
+  generateRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
+  // ── CRIAR SALA (host) ──
+  createRoom() {
+    this.myName = document.getElementById('room-my-name').value.trim() || 'Anfitrião';
+    this.roomId = this.generateRoomCode();
+    this.isHost = true;
+
+    this.updateBadge('waiting', 'Criando...');
+
+    // PeerJS ID = "mptac-" + código da sala (o host usa o código como ID)
+    const peerId = 'mptac-' + this.roomId.toLowerCase();
+    this.peer = new Peer(peerId);
+
+    this.peer.on('open', (id) => {
+      console.log('[P2P] Sala criada:', this.roomId);
+      this.members[id] = { name: this.myName };
+      this.updateRoomUI();
+      this.updateBadge('connected', `🟢 ${this.roomId}`);
+      toast(`📡 Sala ${this.roomId} criada! Compartilhe o código.`, 'success');
+    });
+
+    this.peer.on('connection', (conn) => {
+      this.handleNewConnection(conn);
+    });
+
+    this.peer.on('error', (err) => {
+      console.error('[P2P] Erro:', err.type, err.message);
+      if (err.type === 'unavailable-id') {
+        toast('❌ Código de sala já em uso. Tente novamente.', 'error');
+        this.updateBadge('disconnected', 'Erro');
+      } else {
+        toast(`❌ Erro: ${err.type}`, 'error');
+      }
+    });
+
+    this.peer.on('disconnected', () => {
+      this.updateBadge('waiting', 'Reconectando...');
+      setTimeout(() => { if (this.peer && !this.peer.destroyed) this.peer.reconnect(); }, 2000);
+    });
+  }
+
+  // ── ENTRAR NA SALA (membro) ──
+  joinRoom() {
+    const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+    if (!code || code.length < 4) {
+      toast('Digite o código da sala', 'error');
+      return;
+    }
+
+    this.myName = document.getElementById('room-my-name').value.trim() || 'Membro';
+    this.roomId = code;
+    this.isHost = false;
+
+    this.updateBadge('waiting', 'Conectando...');
+
+    this.peer = new Peer(); // ID aleatório
+
+    this.peer.on('open', (myId) => {
+      console.log('[P2P] Meu ID:', myId);
+
+      // Conectar ao host
+      const hostId = 'mptac-' + code.toLowerCase();
+      const conn = this.peer.connect(hostId, { reliable: true });
+
+      conn.on('open', () => {
+        this.connections[conn.peer] = conn;
+        // Enviar meu nome
+        conn.send(JSON.stringify({ type: 'hello', name: this.myName, peerId: myId }));
+        this.updateBadge('connected', `🟢 ${code}`);
+        toast(`📡 Conectado à sala ${code}!`, 'success');
+        this.updateRoomUI();
+      });
+
+      conn.on('data', (raw) => {
+        this.onData(raw, conn);
+      });
+
+      conn.on('close', () => {
+        delete this.connections[conn.peer];
+        this.updateBadge('disconnected', 'Desconectado');
+        toast('⚠️ Conexão com a sala perdida', 'error');
+      });
+
+      conn.on('error', (err) => {
+        toast(`❌ Erro de conexão: ${err}`, 'error');
+      });
+    });
+
+    this.peer.on('error', (err) => {
+      console.error('[P2P] Erro:', err.type);
+      if (err.type === 'peer-unavailable') {
+        toast('❌ Sala não encontrada. Verifique o código.', 'error');
+      } else {
+        toast(`❌ Erro: ${err.type}`, 'error');
+      }
+      this.updateBadge('disconnected', 'Erro');
+    });
+  }
+
+  // ── Host: receber nova conexão ──
+  handleNewConnection(conn) {
+    conn.on('open', () => {
+      this.connections[conn.peer] = conn;
+      console.log('[P2P] Novo membro:', conn.peer);
+
+      // Enviar estado completo para o novo membro
+      const state = this.getFullState();
+      conn.send(JSON.stringify({ type: 'full_state', state, members: this.members }));
+    });
+
+    conn.on('data', (raw) => {
+      this.onData(raw, conn);
+    });
+
+    conn.on('close', () => {
+      const name = this.members[conn.peer]?.name || conn.peer;
+      delete this.connections[conn.peer];
+      delete this.members[conn.peer];
+      // Remover cursor
+      if (this._remoteCursors[conn.peer]) {
+        this.app.map.removeLayer(this._remoteCursors[conn.peer]);
+        delete this._remoteCursors[conn.peer];
+      }
+      this.updateRoomUI();
+      this.broadcastToAll({ type: 'member_left', peerId: conn.peer });
+      toast(`👤 ${name} saiu da sala`, 'info');
+    });
+  }
+
+  // ── Receber dados ──
+  onData(raw, fromConn) {
+    try {
+      const msg = typeof raw === 'string' ? JSON.parse(raw) : JSON.parse(new TextDecoder().decode(raw));
+      this.handleMessage(msg, fromConn);
+    } catch (e) {
+      console.error('[P2P] Erro ao processar mensagem:', e);
+    }
+  }
+
+  // ── Processar mensagem recebida ──
+  handleMessage(msg, fromConn) {
+    this.suppressSync = true;
+
+    switch (msg.type) {
+      case 'hello': {
+        // Novo membro se identificou
+        this.members[msg.peerId || fromConn.peer] = { name: msg.name };
+        this.updateRoomUI();
+        // Informar todos sobre o novo membro
+        this.broadcastToAll({ type: 'members_update', members: this.members });
+        toast(`👤 ${msg.name} entrou na sala`, 'success');
+        break;
+      }
+
+      case 'full_state': {
+        // Membro recebeu estado completo do host
+        const state = msg.state;
+        this.app.objectCounter = state.objectCounter || 0;
+        Object.values(this.app.markers).forEach(m => this.app.map.removeLayer(m.marker));
+        this.app.markers = {};
+        for (const [id, data] of Object.entries(state.markers || {})) {
+          const marker = this.app.createMarker(data);
+          this.app.markers[id] = { marker, data };
+        }
+        this.app.updateTree();
+        this.app.updateCounts();
+        if (msg.members) this.members = { ...this.members, ...msg.members };
+        this.updateRoomUI();
+        break;
+      }
+
+      case 'members_update': {
+        this.members = { ...this.members, ...msg.members };
+        this.updateRoomUI();
+        break;
+      }
+
+      case 'member_left': {
+        delete this.members[msg.peerId];
+        if (this._remoteCursors[msg.peerId]) {
+          this.app.map.removeLayer(this._remoteCursors[msg.peerId]);
+          delete this._remoteCursors[msg.peerId];
+        }
+        this.updateRoomUI();
+        break;
+      }
+
+      case 'place': {
+        const data = msg.data;
+        if (data.counter > this.app.objectCounter) this.app.objectCounter = data.counter;
+        const marker = this.app.createMarker(data);
+        this.app.markers[data.id] = { marker, data };
+        this.app.updateTree();
+        this.app.updateCounts();
+        toast(`📌 ${msg.from || '?'} posicionou "${data.label}"`, 'info');
+        if (this.isHost) this.broadcastToAll(msg, fromConn);
+        break;
+      }
+
+      case 'move': {
+        const m = this.app.markers[msg.id];
+        if (m) {
+          m.data.lat = msg.lat;
+          m.data.lng = msg.lng;
+          m.marker.setLatLng([msg.lat, msg.lng]);
+          this.app.updateProps();
+        }
+        if (this.isHost) this.broadcastToAll(msg, fromConn);
+        break;
+      }
+
+      case 'edit': {
+        const m = this.app.markers[msg.id];
+        if (m) {
+          Object.assign(m.data, msg.changes);
+          this.app.refreshSingleMarker(msg.id);
+          this.app.updateTree();
+          this.app.updateProps();
+          toast(`✏️ ${msg.from || '?'} editou "${msg.changes.label || msg.id}"`, 'info');
+        }
+        if (this.isHost) this.broadcastToAll(msg, fromConn);
+        break;
+      }
+
+      case 'delete': {
+        const m = this.app.markers[msg.id];
+        if (m) {
+          m.marker.closePopup();
+          this.app.map.removeLayer(m.marker);
+          delete this.app.markers[msg.id];
+          if (this.app.selectedMarkerId === msg.id) this.app.selectedMarkerId = null;
+          this.app.updateTree();
+          this.app.updateCounts();
+          this.app.updateProps();
+          toast(`🗑 ${msg.from || '?'} removeu um elemento`, 'info');
+        }
+        if (this.isHost) this.broadcastToAll(msg, fromConn);
+        break;
+      }
+
+      case 'clear': {
+        Object.values(this.app.markers).forEach(m => this.app.map.removeLayer(m.marker));
+        this.app.markers = {};
+        this.app.objectCounter = 0;
+        this.app.selectedMarkerId = null;
+        this.app.updateTree();
+        this.app.updateCounts();
+        this.app.updateProps();
+        toast(`🧹 ${msg.from || '?'} limpou tudo`, 'info');
+        if (this.isHost) this.broadcastToAll(msg, fromConn);
+        break;
+      }
+
+      case 'stadium': {
+        this.app.loadStadium(msg.stadium);
+        if (this.isHost) this.broadcastToAll(msg, fromConn);
+        break;
+      }
+
+      case 'cursor': {
+        this.showRemoteCursor(msg.peerId, msg.name, msg.lat, msg.lng);
+        if (this.isHost) this.broadcastToAll(msg, fromConn);
+        break;
+      }
+    }
+
+    this.suppressSync = false;
+  }
+
+  // ── Obter estado completo ──
+  getFullState() {
+    const markers = {};
+    for (const [id, m] of Object.entries(this.app.markers)) {
+      markers[id] = { ...m.data };
+    }
+    return { markers, objectCounter: this.app.objectCounter };
+  }
+
+  // ── Broadcast para todos (host reencaminha) ──
+  broadcastToAll(msg, excludeConn = null) {
+    const data = JSON.stringify(msg);
+    for (const [peerId, conn] of Object.entries(this.connections)) {
+      if (conn !== excludeConn && conn.open) {
+        try { conn.send(data); } catch(e) {}
+      }
+    }
+  }
+
+  // ── Enviar para o host (membros) ou broadcast (host) ──
+  send(msg) {
+    if (this.suppressSync) return;
+    msg.from = this.myName;
+    msg.peerId = this.peer?.id;
+
+    if (this.isHost) {
+      this.broadcastToAll(msg);
+    } else {
+      // Membros enviam só para o host
+      const data = JSON.stringify(msg);
+      for (const conn of Object.values(this.connections)) {
+        if (conn.open) { try { conn.send(data); } catch(e) {} }
+      }
+    }
+  }
+
+  // ── Sair da sala ──
+  leaveRoom() {
+    if (this.peer) {
+      this.peer.destroy();
+      this.peer = null;
+    }
+    this.connections = {};
+    this.members = {};
+    this.isHost = false;
+    this.roomId = null;
+    // Limpar cursores remotos
+    Object.values(this._remoteCursors).forEach(m => this.app.map.removeLayer(m));
+    this._remoteCursors = {};
+    this.updateBadge('disconnected', 'Sala');
+    this.updateRoomUI();
+    toast('Saiu da sala', 'info');
+  }
+
+  // ── UI ──
+  updateBadge(state, text) {
+    const badge = document.getElementById('online-badge');
+    const label = document.getElementById('online-text');
+    if (badge) badge.className = 'online-badge ' + state;
+    if (label) label.textContent = text;
+  }
+
+  updateRoomUI() {
+    const createSec = document.getElementById('room-create-section');
+    const joinSec = document.getElementById('room-join-section');
+    const activeSec = document.getElementById('room-active-section');
+    const leaveBtn = document.getElementById('room-leave-btn');
+
+    if (this.roomId && this.peer && !this.peer.destroyed) {
+      createSec.style.display = 'none';
+      joinSec.style.display = 'none';
+      activeSec.style.display = 'block';
+      leaveBtn.style.display = 'block';
+
+      document.getElementById('room-code-show').textContent = this.roomId;
+
+      const list = document.getElementById('room-members-list');
+      list.innerHTML = '';
+      // Adicionar eu mesmo
+      const myBadge = document.createElement('span');
+      myBadge.className = 'room-member';
+      myBadge.textContent = `${this.myName} (você)`;
+      list.appendChild(myBadge);
+      // Adicionar outros
+      for (const [peerId, info] of Object.entries(this.members)) {
+        if (peerId === this.peer?.id) continue;
+        const badge = document.createElement('span');
+        badge.className = 'room-member';
+        badge.textContent = info.name || peerId.substring(0, 8);
+        list.appendChild(badge);
+      }
+
+      const count = Object.keys(this.connections).length + 1;
+      this.updateBadge('connected', `${count} online`);
+    } else {
+      createSec.style.display = 'block';
+      joinSec.style.display = 'block';
+      activeSec.style.display = 'none';
+      leaveBtn.style.display = 'none';
+    }
+  }
+
+  showRemoteCursor(peerId, name, lat, lng) {
+    if (!this._remoteCursors[peerId]) {
+      const colors = ['#58a6ff','#f85149','#3fb950','#d29922','#bc8cff','#ff7b72','#79c0ff','#56d364'];
+      const idx = Math.abs(peerId.split('').reduce((a,c) => a + c.charCodeAt(0), 0)) % colors.length;
+      const color = colors[idx];
+      const icon = L.divIcon({
+        className: 'remote-cursor',
+        html: `<div style="width:12px;height:12px;background:${color};border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px ${color}"><span class="remote-cursor-label" style="background:${color}">${name || '?'}</span></div>`,
+        iconSize: [12, 12], iconAnchor: [6, 6]
+      });
+      this._remoteCursors[peerId] = L.marker([lat, lng], { icon, interactive: false, zIndexOffset: 500 }).addTo(this.app.map);
+    } else {
+      this._remoteCursors[peerId].setLatLng([lat, lng]);
+    }
+    clearTimeout(this['_ct_' + peerId]);
+    this['_ct_' + peerId] = setTimeout(() => {
+      if (this._remoteCursors[peerId]) {
+        this.app.map.removeLayer(this._remoteCursors[peerId]);
+        delete this._remoteCursors[peerId];
+      }
+    }, 5000);
+  }
+
+  // ── Enviar ações ──
+  sendPlace(data) { this.send({ type: 'place', data: { ...data, counter: this.app.objectCounter } }); }
+  sendMove(id, lat, lng) { this.send({ type: 'move', id, lat, lng }); }
+  sendEdit(id, changes) { this.send({ type: 'edit', id, changes }); }
+  sendDelete(id) { this.send({ type: 'delete', id }); }
+  sendClear() { this.send({ type: 'clear' }); }
+  sendStadium(id) { this.send({ type: 'stadium', stadium: id }); }
+  sendTile(style) { this.send({ type: 'tile', style }); }
+  sendCursor(lat, lng) { this.send({ type: 'cursor', lat, lng, name: this.myName, peerId: this.peer?.id }); }
+}
+
+// ╔════════════════════════════════════════════════════════════════╗
+// ║                       INITIALIZE                              ║
+// ╚════════════════════════════════════════════════════════════════╝
+window.app = new App();
+window.sync = new SyncManager(window.app);
+</script>
+</body>
+</html>
