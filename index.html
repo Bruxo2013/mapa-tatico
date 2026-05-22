@@ -1644,19 +1644,39 @@ class SyncManager {
     this._presenceRef = null;
     this._heartbeat = null;
 
-    // Auto-reconectar se estava numa sala antes
-    const saved = localStorage.getItem('mptac_room');
-    if (saved) {
-      try {
-        const s = JSON.parse(saved);
-        if (s.roomId && s.name) {
-          setTimeout(() => {
+    // Auto-reconectar ou criar sala automaticamente
+    setTimeout(() => {
+      const saved = localStorage.getItem('mptac_room');
+      if (saved) {
+        try {
+          const s = JSON.parse(saved);
+          if (s.roomId && s.name) {
             document.getElementById('room-my-name').value = s.name;
             this._joinRoomDirect(s.roomId, s.name);
-          }, 500);
-        }
-      } catch(e) {}
-    }
+            return;
+          }
+        } catch(e) {}
+      }
+      // Nenhuma sala salva — criar automaticamente
+      this.myName = 'Operador';
+      this.roomId = this.generateRoomCode();
+      this.updateBadge('waiting', 'Conectando...');
+      this.roomRef().set({
+        createdAt: firebase.database.ServerValue.TIMESTAMP,
+        markers: {},
+        objectCounter: 0,
+        stadium: this.app.currentStadium?.id || 'maracana'
+      }).then(() => {
+        console.log('[Firebase] Sala auto-criada:', this.roomId);
+        this._subscribeToRoom();
+        this._setupPresence();
+        this._saveSession();
+        this.updateBadge('connected', `🟢 ${this.roomId}`);
+        toast(`📡 Sala ${this.roomId} ativa — compartilhe o código para sua equipe entrar!`, 'success');
+      }).catch(err => {
+        console.error('[Firebase] Erro ao criar sala:', err);
+      });
+    }, 500);
   }
 
   generateRoomCode() {
