@@ -1644,29 +1644,29 @@ class SyncManager {
     this._presenceRef = null;
     this._heartbeat = null;
 
-    // Auto-reconectar ou entrar na sala padrão
+    // Auto-conectar na sala padrão BEPE01
     setTimeout(() => {
-      // 1) Verifica URL ?sala=CODIGO
+      // 1) Verifica URL ?sala=CODIGO para operações separadas
       const urlParams = new URLSearchParams(window.location.search);
       const salaUrl = urlParams.get('sala');
 
-      // 2) Verifica sessão salva no localStorage
+      // 2) Recupera apenas o NOME do operador do localStorage (ignora sala antiga)
+      let operatorName = 'Operador';
       const saved = localStorage.getItem('mptac_room');
-      if (!salaUrl && saved) {
+      if (saved) {
         try {
           const s = JSON.parse(saved);
-          if (s.roomId && s.name) {
-            document.getElementById('room-my-name').value = s.name;
-            this._joinOrCreateRoom(s.roomId, s.name);
-            return;
+          if (s.name) {
+            operatorName = s.name;
+            document.getElementById('room-my-name').value = operatorName;
           }
         } catch(e) {}
       }
 
-      // 3) Sala padrão fixa — TODOS os dispositivos entram na mesma sala
-      const defaultRoom = salaUrl ? salaUrl.toUpperCase() : 'BEPE01';
-      this.myName = 'Operador';
-      this._joinOrCreateRoom(defaultRoom, this.myName);
+      // 3) SEMPRE entra na sala BEPE01 (ou a da URL) — garante que TODOS os dispositivos sincronizam
+      const room = salaUrl ? salaUrl.toUpperCase() : 'BEPE01';
+      this.myName = operatorName;
+      this._joinOrCreateRoom(room, this.myName);
     }, 500);
   }
 
