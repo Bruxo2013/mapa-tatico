@@ -670,8 +670,9 @@ class App {
     this.setupExport();
     this.setupGoTo();
 
-    // Load Maracanã by default
-    this.loadStadium('maracana');
+    // Carregar estádio salvo localmente (cada dispositivo tem o seu)
+    const savedStadium = localStorage.getItem('mptac_stadium') || 'maracana';
+    this.loadStadium(savedStadium);
   }
 
   // ── Initialize Leaflet Map ──
@@ -757,8 +758,8 @@ class App {
 
     toast(`📍 ${s.name} carregado`, 'success');
 
-    // Sync: notificar outros usuários
-    if (window.sync) window.sync.sendStadium(id);
+    // Estádio é independente por dispositivo — salva localmente
+    localStorage.setItem('mptac_stadium', id);
   }
 
   // ── Object Library ──
@@ -1705,9 +1706,7 @@ class SyncManager {
         this.app.updateTree();
         this.app.updateCounts();
 
-        if (state.stadium && state.stadium !== this.app.currentStadium?.id) {
-          this.app.loadStadium(state.stadium);
-        }
+        // Estádio NÃO é forçado — cada dispositivo mantém o seu
 
         this.suppressSync = false;
         this._subscribeToRoom();
@@ -1801,9 +1800,7 @@ class SyncManager {
       this.app.updateTree();
       this.app.updateCounts();
 
-      if (state.stadium && state.stadium !== this.app.currentStadium?.id) {
-        this.app.loadStadium(state.stadium);
-      }
+      // Estádio NÃO é forçado — cada dispositivo mantém o seu
 
       this.suppressSync = false;
       this._subscribeToRoom();
@@ -1908,17 +1905,8 @@ class SyncManager {
     });
     this._listeners.push({ ref: markersRef, event: 'child_removed' });
 
-    const stadiumRef = fbDb.ref(rp + '/stadium');
-    stadiumRef.on('value', (snap) => {
-      if (this.suppressSync) return;
-      const stadium = snap.val();
-      if (stadium && stadium !== this.app.currentStadium?.id) {
-        this.suppressSync = true;
-        this.app.loadStadium(stadium);
-        this.suppressSync = false;
-      }
-    });
-    this._listeners.push({ ref: stadiumRef, event: 'value' });
+    // Estádio NÃO sincroniza — cada dispositivo escolhe o seu independentemente
+    // Os marcadores continuam sincronizando normalmente entre todos
 
     const counterRef = fbDb.ref(rp + '/objectCounter');
     counterRef.on('value', (snap) => {
