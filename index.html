@@ -1263,11 +1263,9 @@ class GeoTracker {
   _updateTeamList() {
     const list = document.getElementById('team-list');
     const count = document.getElementById('team-count');
-    const opCount = document.getElementById('op-members-count');
     const entries = Object.entries(this._data).filter(([k, v]) => v && v.nome);
 
     count.textContent = entries.length;
-    if (opCount) opCount.textContent = `${entries.length} online`;
 
     if (entries.length === 0) {
       list.innerHTML = '<div class="tree-empty">Nenhum membro conectado</div>';
@@ -2981,6 +2979,9 @@ class SyncManager {
       list.appendChild(badge);
     }
     this.updateBadge('connected', `${count} online`);
+    // Atualizar também o contador do header da operação
+    const opCount = document.getElementById('op-members-count');
+    if (opCount) opCount.textContent = `${count} online`;
   }
 
   // ── Ouvir mudanças em tempo real ──
