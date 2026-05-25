@@ -234,8 +234,9 @@ body.view-mode #room-leave-btn{display:none!important}
 .geo-dot.gradil{background:#58a6ff}.geo-dot.gradil::after{border-color:#58a6ff}
 .geo-dot.revista{background:#d29922}.geo-dot.revista::after{border-color:#d29922}
 .geo-dot.outros{background:#bc8cff}.geo-dot.outros::after{border-color:#bc8cff}
-.geo-label{font-size:8px;font-weight:700;color:#fff;background:rgba(0,0,0,.8);padding:1px 5px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis}
-@keyframes geo-pulse{0%{transform:scale(1);opacity:.6}50%{transform:scale(1.8);opacity:0}100%{transform:scale(1);opacity:0}}
+.geo-arrow{font-size:8px;color:#fff;line-height:1;margin-top:-1px;text-shadow:0 0 3px rgba(0,0,0,.8);transition:transform .5s ease}
+.geo-label{font-size:8px;font-weight:700;color:#fff;background:rgba(0,0,0,.8);padding:1px 5px;border-radius:3px;margin-top:1px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis}
+@keyframes geo-pulse{0%{transform:scale(1);opacity:.6}50%{transform:scale(2);opacity:0}100%{transform:scale(1);opacity:0}}
 
 /* ═══ STADIUM SECTORS ═══ */
 .sector-label{font-size:10px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.5);letter-spacing:1px;white-space:nowrap;pointer-events:none}
@@ -851,51 +852,89 @@ window.doLogin = function() {
 };
 
 // ╔════════════════════════════════════════════════════════════════╗
-// ║                  GEOLOCALIZAÇÃO EM TEMPO REAL                 ║
+// ║              GEOLOCALIZAÇÃO EM TEMPO REAL (GPS)               ║
 // ╚════════════════════════════════════════════════════════════════╝
 class GeoTracker {
   constructor() {
-    this._markers = {}; // peerId -> L.marker
+    this._markers = {};   // peerId -> L.marker
+    this._circles = {};   // peerId -> L.circle (precisão GPS)
+    this._data = {};      // peerId -> dados mais recentes
+    this._prevPos = {};   // peerId -> { lat, lng } anterior (para direção)
     this._watchId = null;
     this._lastSend = 0;
+    this._locRef = null;
     this._startWatching();
     this._subscribeToLocations();
+    // Limpar posições antigas a cada 30s
+    this._cleanupInterval = setInterval(() => this._cleanupStale(), 30000);
   }
 
+  // ── GPS Watch ──
   _startWatching() {
     if (!navigator.geolocation) {
-      toast('GPS não disponível neste dispositivo', 'info');
+      toast('📍 GPS não disponível — ative a localização', 'error');
       return;
     }
+    toast('📍 Ativando GPS...', 'info');
     this._watchId = navigator.geolocation.watchPosition(
       (pos) => this._onPosition(pos),
-      (err) => { console.warn('[Geo] Erro:', err.message); },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      (err) => {
+        console.warn('[Geo] Erro:', err.message);
+        if (err.code === 1) toast('📍 Permissão de GPS negada — ative nas configurações', 'error');
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
     );
   }
 
   _onPosition(pos) {
     const now = Date.now();
-    if (now - this._lastSend < 3000) return; // throttle 3s
+    if (now - this._lastSend < 2000) return; // enviar a cada 2s
     this._lastSend = now;
 
     if (!window.sync || !window.sync.roomId) return;
     const op = window.operador;
     if (!op) return;
 
-    fbDb.ref(`rooms/${window.sync.roomId}/locations/${window.sync.myId}`).set({
+    const locRef = fbDb.ref(`rooms/${window.sync.roomId}/locations/${window.sync.myId}`);
+
+    // Calcular direção do movimento
+    const prevLat = this._myLastLat || pos.coords.latitude;
+    const prevLng = this._myLastLng || pos.coords.longitude;
+    const heading = this._calcHeading(prevLat, prevLng, pos.coords.latitude, pos.coords.longitude);
+    this._myLastLat = pos.coords.latitude;
+    this._myLastLng = pos.coords.longitude;
+
+    const data = {
       lat: pos.coords.latitude,
       lng: pos.coords.longitude,
-      accuracy: pos.coords.accuracy,
+      accuracy: Math.round(pos.coords.accuracy),
+      heading: heading,
+      speed: pos.coords.speed || 0,
       nome: op.nome,
       rg: op.rg,
       servico: op.servico,
       ts: firebase.database.ServerValue.TIMESTAMP
-    });
+    };
+
+    locRef.set(data);
+
+    // Remover ao desconectar
+    if (!this._disconnectSet) {
+      locRef.onDisconnect().remove();
+      this._disconnectSet = true;
+    }
   }
 
+  _calcHeading(lat1, lng1, lat2, lng2) {
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const y = Math.sin(dLng) * Math.cos(lat2 * Math.PI / 180);
+    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+              Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLng);
+    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+  }
+
+  // ── Escutar posições de todos ──
   _subscribeToLocations() {
-    // Espera o sync estar pronto
     const check = setInterval(() => {
       if (window.sync && window.sync.roomId) {
         clearInterval(check);
@@ -905,58 +944,132 @@ class GeoTracker {
   }
 
   _listen() {
-    const ref = fbDb.ref(`rooms/${window.sync.roomId}/locations`);
+    this._locRef = fbDb.ref(`rooms/${window.sync.roomId}/locations`);
 
-    ref.on('child_added', (snap) => this._updateMarker(snap.key, snap.val()));
-    ref.on('child_changed', (snap) => this._updateMarker(snap.key, snap.val()));
-    ref.on('child_removed', (snap) => {
-      if (this._markers[snap.key]) {
-        window.app.map.removeLayer(this._markers[snap.key]);
-        delete this._markers[snap.key];
-      }
+    this._locRef.on('child_added', (snap) => this._updateMarker(snap.key, snap.val()));
+    this._locRef.on('child_changed', (snap) => this._updateMarker(snap.key, snap.val()));
+    this._locRef.on('child_removed', (snap) => {
+      this._removeMarker(snap.key);
       this._updateTeamList();
     });
   }
 
+  _removeMarker(peerId) {
+    if (this._markers[peerId]) {
+      window.app.map.removeLayer(this._markers[peerId]);
+      delete this._markers[peerId];
+    }
+    if (this._circles[peerId]) {
+      window.app.map.removeLayer(this._circles[peerId]);
+      delete this._circles[peerId];
+    }
+    delete this._data[peerId];
+    delete this._prevPos[peerId];
+  }
+
+  // ── Limpar posições antigas (>2 min sem atualizar) ──
+  _cleanupStale() {
+    const now = Date.now();
+    for (const [peerId, data] of Object.entries(this._data)) {
+      if (data._clientTs && now - data._clientTs > 120000) {
+        this._removeMarker(peerId);
+      }
+    }
+    this._updateTeamList();
+  }
+
+  // ── Atualizar/criar marcador ──
   _updateMarker(peerId, data) {
     if (!data || !data.lat || !data.lng) return;
-    // Ignorar posições muito antigas (>60s)
-    if (data.ts && Date.now() - data.ts > 60000) return;
 
     const isMe = peerId === window.sync?.myId;
     const svcClass = this._serviceClass(data.servico);
+    const colors = { gpr:'#3fb950', gradil:'#58a6ff', revista:'#d29922', outros:'#bc8cff' };
+    const color = colors[svcClass] || '#bc8cff';
     const labelText = isMe ? `${data.nome} (Você)` : data.nome;
 
-    // Guardar dados para popup
-    this._data = this._data || {};
+    // Guardar dados + timestamp local
+    data._clientTs = Date.now();
     this._data[peerId] = data;
 
+    // Seta de direção
+    const heading = data.heading || 0;
+    const hasMoved = this._prevPos[peerId] &&
+      (Math.abs(this._prevPos[peerId].lat - data.lat) > 0.00001 ||
+       Math.abs(this._prevPos[peerId].lng - data.lng) > 0.00001);
+    const arrowRotate = hasMoved ? `transform:rotate(${heading}deg)` : 'display:none';
+
     if (this._markers[peerId]) {
-      this._markers[peerId].setLatLng([data.lat, data.lng]);
-      return;
+      // ── Movimento suave animado ──
+      const marker = this._markers[peerId];
+      const start = marker.getLatLng();
+      const end = L.latLng(data.lat, data.lng);
+      const steps = 15;
+      let step = 0;
+      const animate = () => {
+        step++;
+        const t = step / steps;
+        const lat = start.lat + (end.lat - start.lat) * t;
+        const lng = start.lng + (end.lng - start.lng) * t;
+        marker.setLatLng([lat, lng]);
+        if (step < steps) requestAnimationFrame(animate);
+      };
+      animate();
+
+      // Atualizar ícone (direção pode ter mudado)
+      marker.setIcon(L.divIcon({
+        className: 'geo-marker',
+        html: `<div class="geo-marker-inner">
+          <div class="geo-dot ${svcClass}"></div>
+          <div class="geo-arrow" style="${arrowRotate}">▲</div>
+          <div class="geo-label">${labelText}</div>
+        </div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
+      }));
+
+      // Atualizar círculo de precisão
+      if (this._circles[peerId]) {
+        this._circles[peerId].setLatLng([data.lat, data.lng]);
+        this._circles[peerId].setRadius(data.accuracy || 10);
+      }
+    } else {
+      // ── Criar novo marcador ──
+      const icon = L.divIcon({
+        className: 'geo-marker',
+        html: `<div class="geo-marker-inner">
+          <div class="geo-dot ${svcClass}"></div>
+          <div class="geo-arrow" style="${arrowRotate}">▲</div>
+          <div class="geo-label">${labelText}</div>
+        </div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
+      });
+
+      const marker = L.marker([data.lat, data.lng], {
+        icon,
+        interactive: true,
+        zIndexOffset: 2000
+      }).addTo(window.app.map);
+
+      marker.on('click', () => this._openGeoPopup(peerId));
+      this._markers[peerId] = marker;
+
+      // Círculo de precisão GPS
+      this._circles[peerId] = L.circle([data.lat, data.lng], {
+        radius: data.accuracy || 10,
+        color: color,
+        fillColor: color,
+        fillOpacity: 0.08,
+        weight: 1,
+        opacity: 0.3,
+        interactive: false
+      }).addTo(window.app.map);
+
+      this._updateTeamList();
     }
 
-    const icon = L.divIcon({
-      className: 'geo-marker',
-      html: `<div class="geo-marker-inner">
-        <div class="geo-dot ${svcClass}"></div>
-        <div class="geo-label">${labelText}</div>
-      </div>`,
-      iconSize: [14, 14],
-      iconAnchor: [7, 7]
-    });
-
-    const marker = L.marker([data.lat, data.lng], {
-      icon,
-      interactive: true,
-      zIndexOffset: 2000
-    }).addTo(window.app.map);
-
-    // Popup ao clicar no marcador de geolocalização
-    marker.on('click', () => this._openGeoPopup(peerId));
-    this._markers[peerId] = marker;
-
-    this._updateTeamList();
+    this._prevPos[peerId] = { lat: data.lat, lng: data.lng };
   }
 
   _openGeoPopup(peerId) {
@@ -970,6 +1083,14 @@ class GeoTracker {
     const color = colors[svcClass] || '#bc8cff';
     const initial = (data.nome || '?')[0].toUpperCase();
 
+    // Tempo desde última atualização
+    const agoSec = data._clientTs ? Math.round((Date.now() - data._clientTs) / 1000) : 0;
+    const agoText = agoSec < 5 ? 'Agora' : agoSec < 60 ? `${agoSec}s atrás` : `${Math.round(agoSec/60)}min atrás`;
+    const liveColor = agoSec < 10 ? '#3fb950' : agoSec < 30 ? '#d29922' : '#f85149';
+
+    // Velocidade km/h
+    const speedKmh = data.speed ? (data.speed * 3.6).toFixed(1) : '0';
+
     // Buscar foto do Firebase
     fbDb.ref(`rooms/${window.sync.roomId}/photos/${peerId}`).once('value').then(snap => {
       const photoData = snap.val();
@@ -977,7 +1098,7 @@ class GeoTracker {
       let photoHTML = '';
       if (photoData && photoData.img) {
         photoHTML = `<img class="geo-popup-photo" src="${photoData.img}" alt="Foto do local" onclick="window.geoTracker._viewFullscreen('${peerId}')">
-          <div style="font-size:9px;color:var(--txt3);text-align:center">${photoData.time || ''}</div>`;
+          <div style="font-size:9px;color:var(--txt3);text-align:center">📸 ${photoData.time || ''}</div>`;
       } else {
         photoHTML = '<div class="geo-popup-no-photo">📷 Sem foto anexada</div>';
       }
@@ -996,8 +1117,13 @@ class GeoTracker {
           </div>
         </div>
         ${photoHTML}
-        <div style="font-size:10px;color:var(--txt3);text-align:center">
-          📍 ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}
+        <div style="display:flex;gap:8px;justify-content:center;padding:6px 0;font-size:10px">
+          <span style="color:${liveColor};font-weight:700">● ${agoText}</span>
+          <span style="color:var(--txt3)">📍 ±${data.accuracy || '?'}m</span>
+          <span style="color:var(--txt3)">🏃 ${speedKmh} km/h</span>
+        </div>
+        <div style="font-size:9px;color:var(--txt3);text-align:center;padding:2px 0">
+          ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}
         </div>
         ${btnHTML}
       </div>`;
@@ -1005,7 +1131,7 @@ class GeoTracker {
       marker.unbindPopup();
       marker.bindPopup(html, {
         maxWidth: 300,
-        minWidth: 220,
+        minWidth: 240,
         className: 'tactical-edit-popup'
       }).openPopup();
     });
@@ -1092,42 +1218,56 @@ class GeoTracker {
   }
 
   _updateTeamList() {
-    if (!window.sync || !window.sync.roomId) return;
-    fbDb.ref(`rooms/${window.sync.roomId}/locations`).once('value').then(snap => {
-      const data = snap.val() || {};
-      const list = document.getElementById('team-list');
-      const count = document.getElementById('team-count');
-      const opCount = document.getElementById('op-members-count');
-      const entries = Object.entries(data).filter(([k, v]) => v && v.nome);
+    const list = document.getElementById('team-list');
+    const count = document.getElementById('team-count');
+    const opCount = document.getElementById('op-members-count');
+    const entries = Object.entries(this._data).filter(([k, v]) => v && v.nome);
 
-      count.textContent = entries.length;
-      if (opCount) opCount.textContent = `${entries.length} online`;
+    count.textContent = entries.length;
+    if (opCount) opCount.textContent = `${entries.length} online`;
 
-      if (entries.length === 0) {
-        list.innerHTML = '<div class="tree-empty">Nenhum membro conectado</div>';
-        return;
-      }
+    if (entries.length === 0) {
+      list.innerHTML = '<div class="tree-empty">Nenhum membro conectado</div>';
+      return;
+    }
 
-      list.innerHTML = entries.map(([id, v]) => {
-        const isMe = id === window.sync?.myId;
-        const svcClass = this._serviceClass(v.servico);
-        const colors = { gpr:'#3fb950', gradil:'#58a6ff', revista:'#d29922', outros:'#bc8cff' };
-        return `<div class="user-item">
-          <div class="user-dot" style="background:${colors[svcClass]}"></div>
-          <div class="user-info">
-            <div class="u-name">${v.nome}${isMe ? ' (Você)' : ''}</div>
-            <div class="u-detail">RG: ${v.rg || '—'}</div>
-          </div>
-          <span class="user-service" style="background:${colors[svcClass]}22;color:${colors[svcClass]}">${v.servico || '—'}</span>
-        </div>`;
-      }).join('');
-    });
+    const colors = { gpr:'#3fb950', gradil:'#58a6ff', revista:'#d29922', outros:'#bc8cff' };
+
+    list.innerHTML = entries.map(([id, v]) => {
+      const isMe = id === window.sync?.myId;
+      const svcClass = this._serviceClass(v.servico);
+      const color = colors[svcClass] || '#bc8cff';
+      const agoSec = v._clientTs ? Math.round((Date.now() - v._clientTs) / 1000) : 999;
+      const liveColor = agoSec < 10 ? '#3fb950' : agoSec < 30 ? '#d29922' : '#f85149';
+      const agoText = agoSec < 5 ? 'ao vivo' : agoSec < 60 ? `${agoSec}s` : `${Math.round(agoSec/60)}min`;
+
+      return `<div class="user-item" style="cursor:pointer" onclick="window.geoTracker._focusOn('${id}')">
+        <div class="user-dot" style="background:${liveColor}"></div>
+        <div class="user-info">
+          <div class="u-name">${v.nome}${isMe ? ' (Você)' : ''}</div>
+          <div class="u-detail">RG: ${v.rg || '—'} | ±${v.accuracy || '?'}m | ${agoText}</div>
+        </div>
+        <span class="user-service" style="background:${color}22;color:${color}">${v.servico || '—'}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Centralizar mapa no operador selecionado ──
+  _focusOn(peerId) {
+    const data = this._data[peerId];
+    if (!data) return;
+    window.app.map.setView([data.lat, data.lng], 19, { animate: true });
+    setTimeout(() => this._openGeoPopup(peerId), 500);
   }
 
   destroy() {
     if (this._watchId) navigator.geolocation.clearWatch(this._watchId);
+    if (this._cleanupInterval) clearInterval(this._cleanupInterval);
     Object.values(this._markers).forEach(m => window.app.map.removeLayer(m));
+    Object.values(this._circles).forEach(c => window.app.map.removeLayer(c));
     this._markers = {};
+    this._circles = {};
+    this._data = {};
   }
 }
 
