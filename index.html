@@ -123,6 +123,11 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 .compass-n{position:absolute;top:2px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:900;color:#f85149;letter-spacing:1px}
 .compass-degrees{position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:600;color:var(--txt2);white-space:nowrap;background:rgba(22,27,34,.8);padding:1px 5px;border-radius:3px}
 
+/* Follow-me GPS button */
+.follow-me-btn{position:absolute;top:140px;right:12px;z-index:1100;width:48px;height:48px;border-radius:50%;background:rgba(22,27,34,.85);border:2px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:22px;color:var(--txt2);transition:all .2s;backdrop-filter:blur(8px);filter:drop-shadow(0 2px 6px rgba(0,0,0,.5))}
+.follow-me-btn:hover{border-color:var(--accent);background:rgba(22,27,34,.95)}
+.follow-me-btn:active{transform:scale(.92)}
+
 /* Leaflet marker customization */
 .tactical-marker{background:none!important;border:none!important}
 .tactical-marker-inner{display:flex;flex-direction:column;align-items:center;cursor:grab}
@@ -612,9 +617,10 @@ body.operador-mode #btn-report{display:none!important}
           <label>Camada Base</label>
           <select id="map-style">
             <option value="osm">OpenStreetMap (Padrão)</option>
+            <option value="hybrid">Híbrido (Satélite + Ruas)</option>
+            <option value="satellite">Satélite</option>
             <option value="topo">Topográfico</option>
             <option value="dark">Escuro</option>
-            <option value="satellite">Satélite</option>
           </select>
         </div>
         <div class="form-row">
@@ -657,6 +663,7 @@ body.operador-mode #btn-report{display:none!important}
       </div>
       <span class="compass-degrees" id="compass-deg">0°</span>
     </div>
+    <div class="follow-me-btn" id="btn-follow-me" onclick="window.geoTracker && window.geoTracker.toggleFollowMe()" title="Seguir minha posição">🎯</div>
     <div id="map-wrapper">
       <div id="map"></div>
     </div>
@@ -698,6 +705,8 @@ body.operador-mode #btn-report{display:none!important}
     <span class="status-item" id="status-local">Local: —</span>
     <span class="sep"></span>
     <span class="status-item" id="status-bearing">🧭 0°</span>
+    <span class="sep"></span>
+    <span class="status-item" id="status-gps"><span style="color:#6e7681">📡 GPS iniciando...</span></span>
   </footer>
 </div>
 
@@ -939,6 +948,59 @@ window.doLogout = function() {
 };
 
 // ╔════════════════════════════════════════════════════════════════╗
+// ║      FILTRO DE KALMAN GPS — precisão de nível profissional      ║
+// ╚════════════════════════════════════════════════════════════════╝
+// Combina múltiplas leituras de GPS ponderadas pela confiabilidade,
+// reduzindo ruído e "tremor". Mesma técnica usada por apps militares,
+// de corrida e navegação veicular. Modelo de velocidade constante 2D.
+class GPSKalmanFilter {
+  constructor(processNoise = 2.5) {
+    this.minAccuracy = 1;       // metros (precisão mínima assumida)
+    this.Q = processNoise;      // ruído do processo (m/s) — quão rápido a posição muda
+    this.variance = -1;         // -1 = não inicializado
+    this.lat = 0;
+    this.lng = 0;
+    this.timestamp = 0;
+  }
+
+  reset() { this.variance = -1; }
+
+  /**
+   * Processa uma leitura bruta do GPS e retorna a posição filtrada.
+   * @returns {lat, lng, accuracy} posição suavizada + precisão estimada
+   */
+  process(lat, lng, accuracy, timestamp) {
+    if (accuracy < this.minAccuracy) accuracy = this.minAccuracy;
+
+    if (this.variance < 0) {
+      // Primeira leitura — inicializa o filtro
+      this.lat = lat;
+      this.lng = lng;
+      this.variance = accuracy * accuracy;
+      this.timestamp = timestamp;
+    } else {
+      // ── PREDIÇÃO ── aumenta a incerteza conforme o tempo passou
+      const dt = (timestamp - this.timestamp) / 1000;
+      if (dt > 0) {
+        this.variance += dt * this.Q * this.Q;
+        this.timestamp = timestamp;
+      }
+      // ── CORREÇÃO ── ganho de Kalman: confia mais na leitura precisa
+      const K = this.variance / (this.variance + accuracy * accuracy);
+      this.lat += K * (lat - this.lat);
+      this.lng += K * (lng - this.lng);
+      this.variance = (1 - K) * this.variance;
+    }
+
+    return {
+      lat: this.lat,
+      lng: this.lng,
+      accuracy: Math.sqrt(this.variance)  // precisão estimada (geralmente melhor que a bruta)
+    };
+  }
+}
+
+// ╔════════════════════════════════════════════════════════════════╗
 // ║              GEOLOCALIZAÇÃO EM TEMPO REAL (GPS)               ║
 // ╚════════════════════════════════════════════════════════════════╝
 class GeoTracker {
@@ -950,6 +1012,9 @@ class GeoTracker {
     this._watchId = null;
     this._lastSend = 0;
     this._locRef = null;
+    this._kalman = new GPSKalmanFilter(2.5);  // filtro de precisão
+    this._followMe = false;                    // seguir minha posição no mapa
+    this._lastRawAccuracy = null;
     this._startWatching();
     this._subscribeToLocations();
     // Limpar posições antigas a cada 30s
@@ -966,7 +1031,15 @@ class GeoTracker {
     this._posCount = 0;
     this._bestAccuracy = Infinity;
     this._lastGoodPos = null;
+    if (this._kalman) this._kalman.reset();
     toast('📍 Aguardando sinal GPS preciso...', 'info');
+
+    // Fix inicial rápido (pode ser menos preciso, só para posicionar logo)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => this._onPosition(pos),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+    );
 
     this._watchId = navigator.geolocation.watchPosition(
       (pos) => this._onPosition(pos),
@@ -1001,53 +1074,63 @@ class GeoTracker {
   }
 
   _onPosition(pos) {
-    const accuracy = pos.coords.accuracy;
+    const rawAccuracy = pos.coords.accuracy;
+    const rawLat = pos.coords.latitude;
+    const rawLng = pos.coords.longitude;
     this._posCount++;
+    this._lastRawAccuracy = rawAccuracy;
 
-    // ── FILTRO DE PRECISÃO INTELIGENTE ──
-    // GPS real = 3-20m, Wi-Fi = 30-100m, Torre = 300-3000m
-    // Aceitar <= 50m (GPS + Wi-Fi boa), rejeitar > 50m
-    const MAX_ACCURACY = 50;
-
-    if (accuracy > MAX_ACCURACY) {
-      console.log(`[Geo] Rejeitada: ±${Math.round(accuracy)}m > ${MAX_ACCURACY}m`);
+    // ── PORTÃO DE ENTRADA ──
+    // Rejeitar leituras grosseiras (torre celular = 300-3000m).
+    // O filtro de Kalman cuida do ruído fino; aqui só barramos o lixo.
+    const HARD_REJECT = 80;  // acima disso quase certamente é torre/Wi-Fi ruim
+    if (rawAccuracy > HARD_REJECT) {
+      console.log(`[Geo] Rejeitada (bruta): ±${Math.round(rawAccuracy)}m`);
       if (this._posCount <= 3) {
-        toast(`📍 Precisão ${Math.round(accuracy)}m — aguardando GPS...`, 'info');
+        toast(`📍 Sinal fraco (${Math.round(rawAccuracy)}m) — buscando satélites...`, 'info');
       }
+      this._updateGpsHud(rawAccuracy, false);
       return;
     }
 
-    // Rastrear melhor precisão
-    if (accuracy < this._bestAccuracy) {
-      this._bestAccuracy = accuracy;
-    }
-
-    // ── Filtro de salto (teleporte) ──
-    // Se a posição mudou drasticamente (>500m) em pouco tempo, rejeitar
+    // ── Filtro de salto (teleporte) sobre a leitura bruta ──
     if (this._lastGoodPos) {
-      const dist = this._haversine(
-        this._lastGoodPos.lat, this._lastGoodPos.lng,
-        pos.coords.latitude, pos.coords.longitude
-      );
+      const dist = this._haversine(this._lastGoodPos.lat, this._lastGoodPos.lng, rawLat, rawLng);
       const timeDiff = Date.now() - this._lastGoodPos.ts;
-      // Se moveu >500m em <3s → é salto, rejeitar
-      if (dist > 500 && timeDiff < 3000) {
-        console.log(`[Geo] Salto rejeitado: ${Math.round(dist)}m em ${timeDiff}ms`);
+      // Velocidade implícita > 150 km/h (41 m/s) é salto de GPS, não movimento real
+      const implausibleSpeed = dist / Math.max(timeDiff / 1000, 0.1);
+      if (dist > 300 && implausibleSpeed > 41) {
+        console.log(`[Geo] Salto rejeitado: ${Math.round(dist)}m (${Math.round(implausibleSpeed)}m/s)`);
         return;
       }
     }
 
-    // Primeira posição precisa recebida
+    // ── FILTRO DE KALMAN ── suaviza e melhora a precisão
+    const now = Date.now();
+    const filtered = this._kalman.process(rawLat, rawLng, rawAccuracy, now);
+    const lat = filtered.lat;
+    const lng = filtered.lng;
+    // A precisão filtrada nunca deve ser pior que a metade da bruta
+    const accuracy = Math.min(rawAccuracy, Math.max(filtered.accuracy, rawAccuracy * 0.4));
+
+    // Rastrear melhor precisão
+    if (accuracy < this._bestAccuracy) this._bestAccuracy = accuracy;
+
+    // Primeira posição válida
     if (!this._gpsReady) {
       this._gpsReady = true;
       toast(`📍 GPS ativo! Precisão: ±${Math.round(accuracy)}m`, 'success');
     }
+    this._updateGpsHud(accuracy, true);
 
-    // Guardar como última posição boa
-    this._lastGoodPos = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+    this._lastGoodPos = { lat, lng, ts: now };
 
-    const now = Date.now();
-    // Enviar a cada 1s para atualização mais fluida em tempo real
+    // Seguir minha posição no mapa, se ativado
+    if (this._followMe && window.app && window.app.map) {
+      window.app.map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    }
+
+    // Enviar a cada 1s para tempo real fluido
     if (now - this._lastSend < 1000) return;
     this._lastSend = now;
 
@@ -1057,17 +1140,18 @@ class GeoTracker {
 
     const locRef = fbDb.ref(`rooms/${window.sync.roomId}/locations/${window.sync.myId}`);
 
-    // Calcular direção do movimento
-    const prevLat = this._myLastLat || pos.coords.latitude;
-    const prevLng = this._myLastLng || pos.coords.longitude;
-    const heading = this._calcHeading(prevLat, prevLng, pos.coords.latitude, pos.coords.longitude);
-    this._myLastLat = pos.coords.latitude;
-    this._myLastLng = pos.coords.longitude;
+    // Direção do movimento (usa posição filtrada)
+    const prevLat = this._myLastLat || lat;
+    const prevLng = this._myLastLng || lng;
+    const heading = this._calcHeading(prevLat, prevLng, lat, lng);
+    this._myLastLat = lat;
+    this._myLastLng = lng;
 
     const data = {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
+      lat: lat,
+      lng: lng,
       accuracy: Math.round(accuracy),
+      rawAccuracy: Math.round(rawAccuracy),
       heading: heading,
       speed: pos.coords.speed || 0,
       nome: op.nome,
@@ -1078,10 +1162,45 @@ class GeoTracker {
 
     locRef.set(data);
 
-    // Remover ao desconectar
     if (!this._disconnectSet) {
       locRef.onDisconnect().remove();
       this._disconnectSet = true;
+    }
+  }
+
+  // ── HUD de qualidade do GPS (barra de status) ──
+  _updateGpsHud(accuracy, good) {
+    const el = document.getElementById('status-gps');
+    if (!el) return;
+    let icon, color, label;
+    if (!good) {
+      icon = '📡'; color = '#f85149'; label = `Buscando GPS (±${Math.round(accuracy)}m)`;
+    } else if (accuracy <= 8) {
+      icon = '🛰'; color = '#3fb950'; label = `GPS ótimo ±${Math.round(accuracy)}m`;
+    } else if (accuracy <= 20) {
+      icon = '🛰'; color = '#3fb950'; label = `GPS bom ±${Math.round(accuracy)}m`;
+    } else {
+      icon = '📡'; color = '#d29922'; label = `GPS regular ±${Math.round(accuracy)}m`;
+    }
+    el.innerHTML = `<span style="color:${color}">${icon} ${label}</span>`;
+  }
+
+  // ── Alternar "Seguir minha posição" ──
+  toggleFollowMe() {
+    this._followMe = !this._followMe;
+    const btn = document.getElementById('btn-follow-me');
+    if (btn) {
+      btn.style.background = this._followMe ? 'var(--accent)' : 'rgba(22,27,34,.85)';
+      btn.style.color = this._followMe ? '#fff' : 'var(--txt2)';
+      btn.title = this._followMe ? 'Seguindo sua posição' : 'Seguir minha posição';
+    }
+    if (this._followMe) {
+      toast('🎯 Seguindo sua posição GPS', 'success');
+      if (this._myLastLat && window.app) {
+        window.app.map.setView([this._myLastLat, this._myLastLng], 19, { animate: true });
+      }
+    } else {
+      toast('Modo seguir desativado', 'info');
     }
   }
 
@@ -1901,10 +2020,16 @@ class App {
   setTileLayer(style) {
     if (this.currentTileLayer) this.map.removeLayer(this.currentTileLayer);
     if (this.labelsOverlay) { this.map.removeLayer(this.labelsOverlay); this.labelsOverlay = null; }
-    const layer = TILE_LAYERS[style] || TILE_LAYERS.osm;
+
+    // Híbrido = satélite com ruas por cima
+    const baseStyle = style === 'hybrid' ? 'satellite' : style;
+    const layer = TILE_LAYERS[baseStyle] || TILE_LAYERS.osm;
+    const isSat = baseStyle === 'satellite';
+
     this.currentTileLayer = L.tileLayer(layer.url, {
       attribution: layer.attr,
       maxZoom: 19,
+      maxNativeZoom: isSat ? 19 : 19,
       subdomains: 'abc',
       errorTileUrl: '',              // Não mostrar tile de erro
       crossOrigin: true,
@@ -1912,20 +2037,28 @@ class App {
       keepBuffer: 4
     }).addTo(this.map);
 
-    // Retry tiles que falharam
+    // Retry tiles que falharam (até 3x)
     this.currentTileLayer.on('tileerror', (e) => {
       const tile = e.tile;
+      if (!tile) return;
+      const retries = parseInt(tile.dataset.retries || '0', 10);
+      if (retries >= 3) return;
       const src = tile.src;
-      setTimeout(() => { tile.src = ''; tile.src = src; }, 2000);
+      tile.dataset.retries = retries + 1;
+      setTimeout(() => { tile.src = ''; tile.src = src; }, 1500);
     });
 
-    // Add street labels overlay on satellite
-    if (style === 'satellite') {
-      this.labelsOverlay = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+    // Sobrepor ruas/labels no satélite e no híbrido
+    if (style === 'satellite' || style === 'hybrid') {
+      const overlayUrl = style === 'hybrid'
+        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
+        : 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png';
+      this.labelsOverlay = L.tileLayer(overlayUrl, {
         attribution: '',
         maxZoom: 19,
         subdomains: 'abcd',
-        pane: 'overlayPane'
+        pane: 'overlayPane',
+        opacity: style === 'hybrid' ? 0.9 : 1
       }).addTo(this.map);
     }
   }
