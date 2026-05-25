@@ -237,6 +237,27 @@ body.view-mode #room-leave-btn{display:none!important}
 .geo-label{font-size:8px;font-weight:700;color:#fff;background:rgba(0,0,0,.8);padding:1px 5px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis}
 @keyframes geo-pulse{0%{transform:scale(1);opacity:.6}50%{transform:scale(1.8);opacity:0}100%{transform:scale(1);opacity:0}}
 
+/* ═══ STADIUM SECTORS ═══ */
+.sector-label{font-size:10px;font-weight:800;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.5);letter-spacing:1px;white-space:nowrap;pointer-events:none}
+.sector-label.gate{font-size:8px;letter-spacing:0}
+.sector-label.field{font-size:11px;color:#4ade80}
+.sector-label.vip{font-size:8px;color:#c084fc}
+
+/* ═══ PHOTO POPUP / CAPTURE ═══ */
+.geo-popup{padding:12px 14px;max-width:280px}
+.geo-popup-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.geo-popup-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff}
+.geo-popup-info .gp-name{font-size:13px;font-weight:700;color:var(--txt)}
+.geo-popup-info .gp-detail{font-size:10px;color:var(--txt3)}
+.geo-popup-photo{width:100%;border-radius:8px;border:1px solid var(--border);margin:8px 0;max-height:200px;object-fit:cover;cursor:pointer}
+.geo-popup-photo:hover{opacity:.9}
+.geo-popup-no-photo{text-align:center;padding:12px;background:var(--bg3);border-radius:8px;color:var(--txt3);font-size:10px;margin:8px 0}
+.geo-photo-btn{width:100%;padding:8px;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:5px;background:var(--accent);color:#fff;margin-top:6px}
+.geo-photo-btn:hover{background:var(--accent2)}
+.photo-fullscreen{position:fixed;inset:0;z-index:15000;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.photo-fullscreen img{max-width:95vw;max-height:95vh;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.5)}
+.photo-fullscreen .close-fs{position:absolute;top:16px;right:20px;font-size:28px;color:#fff;cursor:pointer;background:rgba(0,0,0,.5);border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center}
+
 /* ═══ OPERATION HEADER ═══ */
 .op-header{display:flex;align-items:center;gap:8px;padding:4px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-size:10px;color:var(--txt2);grid-column:1/-1}
 .op-header .op-tag{background:var(--accent-bg);color:var(--accent);padding:2px 8px;border-radius:4px;font-weight:700;font-size:9px}
@@ -906,6 +927,10 @@ class GeoTracker {
     const svcClass = this._serviceClass(data.servico);
     const labelText = isMe ? `${data.nome} (Você)` : data.nome;
 
+    // Guardar dados para popup
+    this._data = this._data || {};
+    this._data[peerId] = data;
+
     if (this._markers[peerId]) {
       this._markers[peerId].setLatLng([data.lat, data.lng]);
       return;
@@ -921,13 +946,140 @@ class GeoTracker {
       iconAnchor: [7, 7]
     });
 
-    this._markers[peerId] = L.marker([data.lat, data.lng], {
+    const marker = L.marker([data.lat, data.lng], {
       icon,
-      interactive: false,
+      interactive: true,
       zIndexOffset: 2000
     }).addTo(window.app.map);
 
+    // Popup ao clicar no marcador de geolocalização
+    marker.on('click', () => this._openGeoPopup(peerId));
+    this._markers[peerId] = marker;
+
     this._updateTeamList();
+  }
+
+  _openGeoPopup(peerId) {
+    const marker = this._markers[peerId];
+    const data = this._data?.[peerId];
+    if (!marker || !data) return;
+
+    const isMe = peerId === window.sync?.myId;
+    const svcClass = this._serviceClass(data.servico);
+    const colors = { gpr:'#3fb950', gradil:'#58a6ff', revista:'#d29922', outros:'#bc8cff' };
+    const color = colors[svcClass] || '#bc8cff';
+    const initial = (data.nome || '?')[0].toUpperCase();
+
+    // Buscar foto do Firebase
+    fbDb.ref(`rooms/${window.sync.roomId}/photos/${peerId}`).once('value').then(snap => {
+      const photoData = snap.val();
+
+      let photoHTML = '';
+      if (photoData && photoData.img) {
+        photoHTML = `<img class="geo-popup-photo" src="${photoData.img}" alt="Foto do local" onclick="window.geoTracker._viewFullscreen('${peerId}')">
+          <div style="font-size:9px;color:var(--txt3);text-align:center">${photoData.time || ''}</div>`;
+      } else {
+        photoHTML = '<div class="geo-popup-no-photo">📷 Sem foto anexada</div>';
+      }
+
+      let btnHTML = '';
+      if (isMe) {
+        btnHTML = `<button class="geo-photo-btn" onclick="window.geoTracker._capturePhoto()">📸 ${photoData ? 'Atualizar Foto' : 'Anexar Foto do Local'}</button>`;
+      }
+
+      const html = `<div class="geo-popup">
+        <div class="geo-popup-header">
+          <div class="geo-popup-avatar" style="background:${color}">${initial}</div>
+          <div class="geo-popup-info">
+            <div class="gp-name">${data.nome}${isMe ? ' (Você)' : ''}</div>
+            <div class="gp-detail">RG: ${data.rg || '—'} | ${data.servico || '—'}</div>
+          </div>
+        </div>
+        ${photoHTML}
+        <div style="font-size:10px;color:var(--txt3);text-align:center">
+          📍 ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}
+        </div>
+        ${btnHTML}
+      </div>`;
+
+      marker.unbindPopup();
+      marker.bindPopup(html, {
+        maxWidth: 300,
+        minWidth: 220,
+        className: 'tactical-edit-popup'
+      }).openPopup();
+    });
+  }
+
+  _capturePhoto() {
+    // Criar input de arquivo oculto com câmera
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment'; // Câmera traseira no mobile
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    input.addEventListener('change', () => {
+      const file = input.files[0];
+      if (!file) return;
+      this._processPhoto(file);
+      input.remove();
+    });
+
+    input.click();
+  }
+
+  _processPhoto(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      // Comprimir imagem para no máximo ~100KB
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX = 640; // max dimension
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const compressed = canvas.toDataURL('image/jpeg', 0.6);
+
+        // Salvar no Firebase
+        const now = new Date().toLocaleString('pt-BR');
+        fbDb.ref(`rooms/${window.sync.roomId}/photos/${window.sync.myId}`).set({
+          img: compressed,
+          time: now,
+          nome: window.operador?.nome || 'Operador'
+        }).then(() => {
+          toast('📸 Foto anexada!', 'success');
+          // Reabrir popup para mostrar foto
+          this._openGeoPopup(window.sync.myId);
+        });
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  _viewFullscreen(peerId) {
+    fbDb.ref(`rooms/${window.sync.roomId}/photos/${peerId}`).once('value').then(snap => {
+      const data = snap.val();
+      if (!data || !data.img) return;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'photo-fullscreen';
+      overlay.innerHTML = `
+        <div class="close-fs">✕</div>
+        <img src="${data.img}" alt="Foto">
+      `;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.appendChild(overlay);
+    });
   }
 
   _serviceClass(servico) {
@@ -1035,6 +1187,47 @@ const STADIUMS = [
     zoom: 17
   }
 ];
+
+// ── SETORES INTERNOS DOS ESTÁDIOS ──
+const STADIUM_SECTORS = {
+  maracana: {
+    center: [-22.9121, -43.2302],
+    sectors: [
+      // Arquibancada inferior
+      { id:'norte',    name:'SETOR NORTE',    color:'#3b82f6', coords:[[-22.91085,-43.23135],[-22.91085,-43.22905],[-22.91130,-43.22870],[-22.91130,-43.23170]] },
+      { id:'sul',      name:'SETOR SUL',      color:'#ef4444', coords:[[-22.91335,-43.23135],[-22.91335,-43.22905],[-22.91290,-43.22870],[-22.91290,-43.23170]] },
+      { id:'leste',    name:'SETOR LESTE',    color:'#22c55e', coords:[[-22.91130,-43.22905],[-22.91290,-43.22905],[-22.91310,-43.22950],[-22.91110,-43.22950]] },
+      { id:'oeste',    name:'SETOR OESTE',    color:'#f59e0b', coords:[[-22.91130,-43.23135],[-22.91290,-43.23135],[-22.91310,-43.23090],[-22.91110,-43.23090]] },
+      // Portões
+      { id:'portao_a', name:'PORTÃO A',       color:'#06b6d4', coords:[[-22.91070,-43.23060],[-22.91070,-43.22980],[-22.91090,-43.22980],[-22.91090,-43.23060]], type:'gate' },
+      { id:'portao_b', name:'PORTÃO B',       color:'#06b6d4', coords:[[-22.91130,-43.22850],[-22.91200,-43.22850],[-22.91200,-43.22870],[-22.91130,-43.22870]], type:'gate' },
+      { id:'portao_c', name:'PORTÃO C',       color:'#06b6d4', coords:[[-22.91350,-43.22980],[-22.91350,-43.23060],[-22.91330,-43.23060],[-22.91330,-43.22980]], type:'gate' },
+      { id:'portao_d', name:'PORTÃO D',       color:'#06b6d4', coords:[[-22.91220,-43.23170],[-22.91290,-43.23170],[-22.91290,-43.23150],[-22.91220,-43.23150]], type:'gate' },
+      // Áreas especiais
+      { id:'campo',    name:'CAMPO',          color:'#16a34a', coords:[[-22.91160,-43.23080],[-22.91160,-43.22960],[-22.91260,-43.22960],[-22.91260,-43.23080]], type:'field' },
+      { id:'camarote', name:'CAMAROTES',      color:'#a855f7', coords:[[-22.91145,-43.23100],[-22.91145,-43.22940],[-22.91160,-43.22940],[-22.91160,-43.23100]], type:'vip' },
+    ]
+  },
+  engenhao: {
+    center: [-22.8913, -43.2903],
+    sectors: [
+      { id:'norte',    name:'SETOR NORTE',    color:'#3b82f6', coords:[[-22.88985,-43.29145],[-22.88985,-43.28915],[-22.89030,-43.28880],[-22.89030,-43.29180]] },
+      { id:'sul',      name:'SETOR SUL',      color:'#ef4444', coords:[[-22.89275,-43.29145],[-22.89275,-43.28915],[-22.89230,-43.28880],[-22.89230,-43.29180]] },
+      { id:'leste',    name:'SETOR LESTE',    color:'#22c55e', coords:[[-22.89030,-43.28915],[-22.89230,-43.28915],[-22.89250,-43.28960],[-22.89010,-43.28960]] },
+      { id:'oeste',    name:'SETOR OESTE',    color:'#f59e0b', coords:[[-22.89030,-43.29145],[-22.89230,-43.29145],[-22.89250,-43.29100],[-22.89010,-43.29100]] },
+      { id:'campo',    name:'CAMPO',          color:'#16a34a', coords:[[-22.89060,-43.29090],[-22.89060,-43.28970],[-22.89200,-43.28970],[-22.89200,-43.29090]], type:'field' },
+    ]
+  },
+  saojanuario: {
+    center: [-22.8911, -43.2282],
+    sectors: [
+      { id:'social',   name:'SOCIAL',         color:'#3b82f6', coords:[[-22.89010,-43.22910],[-22.89010,-43.22730],[-22.89060,-43.22700],[-22.89060,-43.22940]] },
+      { id:'geral',    name:'GERAL',          color:'#ef4444', coords:[[-22.89210,-43.22910],[-22.89210,-43.22730],[-22.89160,-43.22700],[-22.89160,-43.22940]] },
+      { id:'visitante',name:'VISITANTE',      color:'#f59e0b', coords:[[-22.89060,-43.22730],[-22.89160,-43.22730],[-22.89180,-43.22770],[-22.89040,-43.22770]], type:'away' },
+      { id:'campo',    name:'CAMPO',          color:'#16a34a', coords:[[-22.89080,-43.22880],[-22.89080,-43.22780],[-22.89180,-43.22780],[-22.89180,-43.22880]], type:'field' },
+    ]
+  }
+};
 
 // ── OBJECT LIBRARY ──
 const OBJECT_LIBRARY = [
@@ -1144,6 +1337,7 @@ class App {
     this.currentTileLayer = null;
     this.labelsOverlay = null;
     this.currentStadium = null;
+    this._sectorLayers = [];
 
     // ── MODO DE ACESSO: adm (edição) ou view (visualização) ──
     const urlParams = new URLSearchParams(window.location.search);
@@ -1329,6 +1523,7 @@ class App {
     });
     this.map.on('zoomend', () => {
       document.getElementById('status-zoom').textContent = `Zoom: ${this.map.getZoom()}`;
+      this._updateSectorVisibility();
     });
   }
 
@@ -1384,10 +1579,66 @@ class App {
     document.querySelectorAll('.stadium-card').forEach(c => c.classList.remove('active'));
     document.querySelector(`.stadium-card[data-id="${id}"]`)?.classList.add('active');
 
+    // Carregar setores do estádio
+    this._loadSectors(id);
+
     toast(`📍 ${s.name} carregado`, 'success');
 
     // Estádio é independente por dispositivo — salva localmente
     localStorage.setItem('mptac_stadium', id);
+  }
+
+  // ── Setores internos do estádio ──
+  _loadSectors(stadiumId) {
+    // Remover setores anteriores
+    if (this._sectorLayers) {
+      this._sectorLayers.forEach(l => this.map.removeLayer(l));
+    }
+    this._sectorLayers = [];
+    this._sectorLabels = [];
+
+    const sectorData = STADIUM_SECTORS[stadiumId];
+    if (!sectorData) return;
+
+    sectorData.sectors.forEach(sec => {
+      // Polígono do setor
+      const poly = L.polygon(sec.coords, {
+        color: sec.color,
+        weight: 2,
+        opacity: 0.8,
+        fillColor: sec.color,
+        fillOpacity: 0.15,
+        interactive: true
+      }).addTo(this.map);
+
+      // Tooltip com nome do setor
+      poly.bindTooltip(sec.name, {
+        permanent: true,
+        direction: 'center',
+        className: `sector-label ${sec.type || ''}`,
+        offset: [0, 0]
+      });
+
+      this._sectorLayers.push(poly);
+    });
+
+    // Controlar visibilidade por zoom
+    this._updateSectorVisibility();
+  }
+
+  _updateSectorVisibility() {
+    if (!this._sectorLayers) return;
+    const zoom = this.map.getZoom();
+    const show = zoom >= 17;
+    this._sectorLayers.forEach(layer => {
+      if (show) {
+        layer.setStyle({ opacity: 0.8, fillOpacity: 0.15 });
+        if (layer.getTooltip()) layer.openTooltip();
+      } else {
+        layer.setStyle({ opacity: 0, fillOpacity: 0 });
+        if (layer.getTooltip()) layer.closeTooltip();
+      }
+    });
   }
 
   // ── Object Library ──
