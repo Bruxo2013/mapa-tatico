@@ -128,6 +128,15 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 .follow-me-btn:hover{border-color:var(--accent);background:rgba(22,27,34,.95)}
 .follow-me-btn:active{transform:scale(.92)}
 
+/* Scale bar — clean premium style */
+.leaflet-control-scale{margin-bottom:22px!important;margin-left:12px!important}
+.leaflet-control-scale-line{background:rgba(255,255,255,.92)!important;color:#1a1a1a!important;border:1px solid rgba(0,0,0,.15)!important;border-top:none!important;font-weight:600!important;font-size:10px!important;letter-spacing:.2px;padding:2px 7px!important;backdrop-filter:blur(4px);box-shadow:0 1px 4px rgba(0,0,0,.25);border-radius:0 0 3px 3px}
+
+/* Coordinate badge — clean glass style */
+.coord-badge{position:absolute;top:12px;left:12px;z-index:1100;background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.1);border-radius:8px;padding:6px 11px;font-family:'Segoe UI',system-ui,sans-serif;font-size:11px;color:#3c4043;letter-spacing:.2px;backdrop-filter:blur(8px);box-shadow:0 2px 10px rgba(0,0,0,.18);pointer-events:none;line-height:1.55}
+.coord-badge .cb-label{color:#80868b;font-size:9px;font-weight:600}
+.coord-badge .cb-val{color:#1a73e8;font-weight:700;font-variant-numeric:tabular-nums}
+
 /* Leaflet marker customization */
 .tactical-marker{background:none!important;border:none!important}
 .tactical-marker-inner{display:flex;flex-direction:column;align-items:center;cursor:grab}
@@ -365,7 +374,7 @@ body.operador-mode #btn-report{display:none!important}
 
   #app{
     grid-template-columns:1fr;
-    grid-template-rows:var(--toolbar) 1fr var(--status);
+    grid-template-rows:auto var(--toolbar) 1fr var(--status);
   }
 
   /* Painéis viram drawers sobrepostos */
@@ -616,11 +625,12 @@ body.operador-mode #btn-report{display:none!important}
         <div class="form-row">
           <label>Camada Base</label>
           <select id="map-style">
-            <option value="osm">OpenStreetMap (Padrão)</option>
+            <option value="voyager">Mapa HD (Padrão)</option>
             <option value="hybrid">Híbrido (Satélite + Ruas)</option>
-            <option value="satellite">Satélite</option>
-            <option value="topo">Topográfico</option>
+            <option value="satellite">Satélite HD</option>
             <option value="dark">Escuro</option>
+            <option value="osm">OpenStreetMap</option>
+            <option value="topo">Topográfico</option>
           </select>
         </div>
         <div class="form-row">
@@ -664,6 +674,10 @@ body.operador-mode #btn-report{display:none!important}
       <span class="compass-degrees" id="compass-deg">0°</span>
     </div>
     <div class="follow-me-btn" id="btn-follow-me" onclick="window.geoTracker && window.geoTracker.toggleFollowMe()" title="Seguir minha posição">🎯</div>
+    <div class="coord-badge" id="coord-badge">
+      <div><span class="cb-label">LAT</span> <span class="cb-val" id="cb-lat">—</span></div>
+      <div><span class="cb-label">LON</span> <span class="cb-val" id="cb-lng">—</span></div>
+    </div>
     <div id="map-wrapper">
       <div id="map"></div>
     </div>
@@ -1767,21 +1781,40 @@ const OBJECT_LIBRARY = [
 
 // ── MAP TILE LAYERS ──
 const TILE_LAYERS = {
+  // CARTO Voyager — basemap limpo e harmônico (estilo Google Maps), HD retina
+  voyager: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attr: '&copy; OpenStreetMap, &copy; CARTO',
+    subdomains: 'abcd'
+  },
+  // CARTO Positron — minimalista claro, ultra limpo
+  positron: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png',
+    attr: '&copy; OpenStreetMap, &copy; CARTO',
+    subdomains: 'abcd'
+  },
+  // Satélite Esri World Imagery — melhor imagem aérea gratuita
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attr: '&copy; Esri, Maxar, Earthstar Geographics',
+    subdomains: 'abc'
+  },
+  // CARTO Dark — escuro limpo e elegante
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png',
+    attr: '&copy; OpenStreetMap, &copy; CARTO',
+    subdomains: 'abcd'
+  },
+  // OpenStreetMap padrão
   osm: {
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attr: '&copy; OpenStreetMap contributors'
+    attr: '&copy; OpenStreetMap contributors',
+    subdomains: 'abc'
   },
   topo: {
     url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    attr: '&copy; OpenTopoMap'
-  },
-  dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attr: '&copy; CartoDB'
-  },
-  satellite: {
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attr: '&copy; Esri'
+    attr: '&copy; OpenTopoMap',
+    subdomains: 'abc'
   }
 };
 
@@ -1985,25 +2018,33 @@ class App {
     this.map = L.map('map', {
       center: [-22.9121, -43.2302],
       zoom: 17,
+      minZoom: 3,
+      maxZoom: 21,                 // Permite aproximação tática máxima
       zoomControl: true,
       attributionControl: true,
       preferCanvas: true,          // Performance: renderizar com Canvas
       fadeAnimation: true,
       zoomAnimation: true,
       markerZoomAnimation: true,
-      updateWhenZooming: false,    // Estabilidade: não recarregar tiles durante zoom
-      updateWhenIdle: true,        // Carregar tiles apenas quando parado
-      keepBuffer: 4                // Manter mais tiles em buffer para menos flicker
+      zoomSnap: 0.5,               // Zoom mais suave e granular
+      zoomDelta: 0.5,
+      wheelPxPerZoomLevel: 80,     // Scroll de zoom mais suave
+      keepBuffer: 6
     });
     this.bearing = 0;
 
-    this.setTileLayer('osm');
+    // Mapa HD limpo (estilo Google Maps) como padrão
+    this.setTileLayer('voyager');
+
+    // Barra de escala métrica (estilo premium)
+    L.control.scale({ metric: true, imperial: false, maxWidth: 140, position: 'bottomleft' }).addTo(this.map);
 
     // Map events
     this.map.on('click', (e) => this.onMapClick(e));
     this.map.on('mousemove', (e) => {
       document.getElementById('status-coords').textContent =
         `Coords: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+      this._updateCoordBadge(e.latlng.lat, e.latlng.lng);
       // Sync: enviar posição do cursor (throttled)
       if (window.sync && !this._cursorThrottle) {
         this._cursorThrottle = true;
@@ -2011,30 +2052,48 @@ class App {
         window.sync.sendCursor(e.latlng.lat, e.latlng.lng);
       }
     });
+    // Atualizar badge ao mover (centro do mapa) — útil no mobile sem mouse
+    this.map.on('move', () => {
+      const c = this.map.getCenter();
+      this._updateCoordBadge(c.lat, c.lng);
+    });
     this.map.on('zoomend', () => {
       document.getElementById('status-zoom').textContent = `Zoom: ${this.map.getZoom()}`;
       this._updateSectorVisibility();
     });
   }
 
+  // ── Atualizar badge de coordenadas (estilo limpo) ──
+  _updateCoordBadge(lat, lng) {
+    const elLat = document.getElementById('cb-lat');
+    const elLng = document.getElementById('cb-lng');
+    if (elLat) elLat.textContent = lat.toFixed(6);
+    if (elLng) elLng.textContent = lng.toFixed(6);
+  }
+
   setTileLayer(style) {
     if (this.currentTileLayer) this.map.removeLayer(this.currentTileLayer);
     if (this.labelsOverlay) { this.map.removeLayer(this.labelsOverlay); this.labelsOverlay = null; }
 
-    // Híbrido = satélite com ruas por cima
+    // Híbrido = satélite com ruas limpas por cima
     const baseStyle = style === 'hybrid' ? 'satellite' : style;
-    const layer = TILE_LAYERS[baseStyle] || TILE_LAYERS.osm;
+    const layer = TILE_LAYERS[baseStyle] || TILE_LAYERS.voyager;
     const isSat = baseStyle === 'satellite';
+
+    // HD: CARTO usa {r}=@2x (retina automático). Satélite Esri (sem {r}) usa detectRetina.
+    const hasRetinaPlaceholder = layer.url.includes('{r}');
 
     this.currentTileLayer = L.tileLayer(layer.url, {
       attribution: layer.attr,
-      maxZoom: 19,
-      maxNativeZoom: isSat ? 19 : 19,
-      subdomains: 'abc',
-      errorTileUrl: '',              // Não mostrar tile de erro
+      maxZoom: 21,                          // Permite aproximar bem (zoom tático)
+      maxNativeZoom: isSat ? 19 : 20,       // Tiles reais até aqui; acima faz upscale nítido
+      subdomains: layer.subdomains || 'abc',
+      detectRetina: !hasRetinaPlaceholder,  // HD em telas de alta densidade
+      errorTileUrl: '',                     // Não mostrar tile de erro
       crossOrigin: true,
-      updateWhenIdle: true,
-      keepBuffer: 4
+      updateWhenIdle: false,                // Carrega tiles enquanto move (mais fluido)
+      updateWhenZooming: false,
+      keepBuffer: 6                         // Mais buffer = sem áreas em branco ao mover
     }).addTo(this.map);
 
     // Retry tiles que falharam (até 3x)
@@ -2048,17 +2107,16 @@ class App {
       setTimeout(() => { tile.src = ''; tile.src = src; }, 1500);
     });
 
-    // Sobrepor ruas/labels no satélite e no híbrido
+    // Sobrepor ruas/labels limpas no satélite e no híbrido (estilo Google)
     if (style === 'satellite' || style === 'hybrid') {
-      const overlayUrl = style === 'hybrid'
-        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
-        : 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png';
-      this.labelsOverlay = L.tileLayer(overlayUrl, {
+      this.labelsOverlay = L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
         attribution: '',
-        maxZoom: 19,
+        maxZoom: 21,
+        maxNativeZoom: 20,
         subdomains: 'abcd',
         pane: 'overlayPane',
-        opacity: style === 'hybrid' ? 0.9 : 1
+        opacity: 0.95
       }).addTo(this.map);
     }
   }
