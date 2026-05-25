@@ -20,7 +20,7 @@
 }
 html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt)}
 
-#app{display:grid;grid-template-rows:var(--toolbar) 1fr var(--status);grid-template-columns:var(--panel) 1fr var(--panel);height:100vh}
+#app{display:grid;grid-template-rows:auto var(--toolbar) 1fr var(--status);grid-template-columns:var(--panel) 1fr var(--panel);height:100vh}
 
 /* TOOLBAR */
 #toolbar{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg2);border-bottom:1px solid var(--border);z-index:1000}
@@ -202,6 +202,65 @@ body.view-mode #room-create-section,
 body.view-mode #room-join-section,
 body.view-mode #room-leave-btn{display:none!important}
 
+/* ═══ LOGIN SCREEN ═══ */
+#login-screen{position:fixed;inset:0;z-index:10000;background:linear-gradient(135deg,#0d1117 0%,#161b22 50%,#1a2332 100%);display:flex;align-items:center;justify-content:center}
+#login-screen.hidden{display:none}
+.login-card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;width:380px;max-width:92vw;box-shadow:0 8px 40px rgba(0,0,0,.6)}
+.login-card .login-logo{text-align:center;margin-bottom:20px}
+.login-card .login-logo .icon{font-size:48px;display:block;margin-bottom:8px}
+.login-card .login-logo h1{font-size:18px;font-weight:700;color:var(--accent)}
+.login-card .login-logo p{font-size:11px;color:var(--txt2);margin-top:4px}
+.login-field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.login-field label{font-size:11px;color:var(--txt2);font-weight:600}
+.login-field input,.login-field select{width:100%;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);color:var(--txt);border-radius:8px;font-size:13px;outline:none;font-family:inherit;letter-spacing:normal;text-align:left}
+.login-field input:focus,.login-field select:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(88,166,255,.15)}
+.login-field input::placeholder{color:var(--txt3)}
+.login-field .hint{font-size:9px;color:var(--txt3);margin-top:2px}
+.login-btn{width:100%;padding:12px;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;background:var(--accent);color:#fff;margin-top:8px}
+.login-btn:hover{background:var(--accent2);transform:translateY(-1px)}
+.login-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.login-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-size:10px;color:var(--txt3)}
+.login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.op-info-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:14px;font-size:11px;color:var(--txt2)}
+.op-info-bar .op-date{color:var(--accent);font-weight:600}
+.op-info-bar .op-desc{flex:1;color:var(--txt)}
+
+/* ═══ GEOLOCATION MARKERS ═══ */
+.geo-marker{z-index:900!important}
+.geo-marker-inner{display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.geo-dot{width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px rgba(0,0,0,.5);position:relative}
+.geo-dot::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid;animation:geo-pulse 2s infinite;opacity:.6}
+.geo-dot.gpr{background:#3fb950}.geo-dot.gpr::after{border-color:#3fb950}
+.geo-dot.gradil{background:#58a6ff}.geo-dot.gradil::after{border-color:#58a6ff}
+.geo-dot.revista{background:#d29922}.geo-dot.revista::after{border-color:#d29922}
+.geo-dot.outros{background:#bc8cff}.geo-dot.outros::after{border-color:#bc8cff}
+.geo-label{font-size:8px;font-weight:700;color:#fff;background:rgba(0,0,0,.8);padding:1px 5px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis}
+@keyframes geo-pulse{0%{transform:scale(1);opacity:.6}50%{transform:scale(1.8);opacity:0}100%{transform:scale(1);opacity:0}}
+
+/* ═══ OPERATION HEADER ═══ */
+.op-header{display:flex;align-items:center;gap:8px;padding:4px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-size:10px;color:var(--txt2);grid-column:1/-1}
+.op-header .op-tag{background:var(--accent-bg);color:var(--accent);padding:2px 8px;border-radius:4px;font-weight:700;font-size:9px}
+.op-header .op-date-display{color:var(--warn);font-weight:600}
+.op-header .op-desc-display{flex:1;color:var(--txt);font-weight:500}
+.op-header .op-members-count{color:var(--success);font-weight:600}
+
+/* ═══ CONNECTED USERS LIST ═══ */
+.users-panel{max-height:200px;overflow-y:auto}
+.user-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:11px;border-bottom:1px solid var(--border)}
+.user-item:last-child{border-bottom:none}
+.user-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.user-info{flex:1;min-width:0}
+.user-info .u-name{font-weight:600;color:var(--txt)}
+.user-info .u-detail{font-size:9px;color:var(--txt3)}
+.user-service{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap}
+
+/* PWA install banner */
+.pwa-install{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);z-index:9500;background:var(--bg2);border:1px solid var(--accent);border-radius:12px;padding:12px 20px;display:none;align-items:center;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.pwa-install.show{display:flex}
+.pwa-install button{padding:8px 16px;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px}
+.pwa-install .pwa-yes{background:var(--accent);color:#fff}
+.pwa-install .pwa-no{background:var(--bg3);color:var(--txt2)}
+
 /* TOAST */
 #toast-container{position:fixed;top:56px;right:14px;z-index:9999;display:flex;flex-direction:column;gap:6px}
 .toast{padding:8px 14px;border-radius:8px;font-size:11px;font-weight:500;animation:slideIn .3s;box-shadow:0 4px 12px rgba(0,0,0,.4)}
@@ -313,14 +372,15 @@ body.view-mode #room-leave-btn{display:none!important}
   .toolbar-right{gap:4px}
   .toolbar-right .btn{padding:4px 6px;font-size:9px}
   .toolbar-right #btn-toggle-labels,
-  .toolbar-right #btn-clear-all{display:none}
+  .toolbar-right #btn-clear-all,
+  .toolbar-right #btn-report{display:none}
 
   /* Statusbar compacto */
   #statusbar{padding:0 8px;font-size:9px;gap:8px;overflow-x:auto}
   .sep{display:none}
 
   /* Map ocupa tudo */
-  #map-container{grid-column:1;grid-row:2}
+  #map-container{grid-column:1;grid-row:3}
 
   /* Popup menor */
   .leaflet-popup-content{min-width:200px!important}
@@ -340,10 +400,92 @@ body.view-mode #room-leave-btn{display:none!important}
   .obj-grid{grid-template-columns:1fr 1fr}
 }
 </style>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
 
+<!-- ═══ TELA DE LOGIN ═══ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="icon">🎯</span>
+      <h1>MAPA TÁTICO</h1>
+      <p>Posicionamento de Efetivo PM</p>
+    </div>
+
+    <div class="login-divider">DADOS DA OPERAÇÃO</div>
+
+    <div class="login-field">
+      <label>📅 Data do Serviço</label>
+      <input type="date" id="login-date">
+    </div>
+    <div class="login-field">
+      <label>📋 Especificação do Serviço</label>
+      <input type="text" id="login-op-desc" placeholder="Ex: Jogo Flamengo x Vasco - Brasileirão">
+      <span class="hint">Descreva a operação/evento</span>
+    </div>
+
+    <div class="login-divider">IDENTIFICAÇÃO</div>
+
+    <div class="login-field">
+      <label>👤 Nome Completo</label>
+      <input type="text" id="login-nome" placeholder="Ex: SD Silva">
+    </div>
+    <div class="login-field">
+      <label>🪪 RG Funcional</label>
+      <input type="text" id="login-rg" placeholder="Ex: 12345" inputmode="numeric">
+    </div>
+    <div class="login-field">
+      <label>⚙ Tipo de Serviço</label>
+      <select id="login-servico">
+        <option value="">Selecione...</option>
+        <option value="GPR">GPR - Grupo de Policiamento em Rodízio</option>
+        <option value="GRADIL">GRADIL</option>
+        <option value="REVISTA">REVISTA</option>
+        <option value="OCORRÊNCIA">OCORRÊNCIA</option>
+        <option value="POLICIAMENTO">POLICIAMENTO</option>
+        <option value="ESCOLTA">ESCOLTA</option>
+        <option value="APOIO">APOIO</option>
+        <option value="COMANDO">COMANDO</option>
+      </select>
+      <span class="hint">Ou digite seu tipo de serviço abaixo</span>
+    </div>
+    <div class="login-field">
+      <label>✏️ Outro tipo (personalizado)</label>
+      <input type="text" id="login-servico-custom" placeholder="Ex: BATEDOR, RESERVA...">
+      <span class="hint">Preencha aqui se seu serviço não está na lista</span>
+    </div>
+
+    <button class="login-btn" id="login-btn" onclick="window.doLogin()">
+      🚀 ENTRAR NA OPERAÇÃO
+    </button>
+  </div>
+</div>
+
+<!-- ═══ PWA INSTALL BANNER ═══ -->
+<div class="pwa-install" id="pwa-banner">
+  <span style="font-size:24px">📲</span>
+  <div style="flex:1">
+    <div style="font-size:12px;font-weight:700;color:var(--txt)">Instalar Mapa Tático</div>
+    <div style="font-size:10px;color:var(--txt2)">Acesse rápido pela tela inicial</div>
+  </div>
+  <button class="pwa-yes" onclick="window.installPWA()">Instalar</button>
+  <button class="pwa-no" onclick="document.getElementById('pwa-banner').classList.remove('show')">✕</button>
+</div>
+
 <div id="app">
+  <!-- OPERATION HEADER -->
+  <div class="op-header" id="op-header" style="display:none">
+    <span class="op-tag">OPERAÇÃO</span>
+    <span class="op-date-display" id="op-date-show"></span>
+    <span class="op-desc-display" id="op-desc-show"></span>
+    <span class="op-members-count" id="op-members-count">0 online</span>
+  </div>
+
   <header id="toolbar">
     <h1>🎯 MAPA TÁTICO <span>Posicionamento de Efetivo PM</span></h1>
     <div class="toolbar-sep"></div>
@@ -359,6 +501,7 @@ body.view-mode #room-leave-btn{display:none!important}
       <button class="btn btn-sm btn-secondary" id="btn-share" onclick="document.getElementById('share-overlay').classList.add('show')" title="Compartilhar">🔗 Compartilhar</button>
       <button class="btn btn-sm btn-secondary" id="btn-toggle-labels">🏷 Rótulos</button>
       <button class="btn btn-sm btn-secondary" id="btn-clear-all">🧹 Limpar Tudo</button>
+      <button class="btn btn-sm btn-secondary" id="btn-report" onclick="window.app.exportReport()">📄 Relatório</button>
       <button class="btn btn-sm btn-primary" id="btn-export">📷 Exportar PNG</button>
     </div>
   </header>
@@ -433,6 +576,17 @@ body.view-mode #room-leave-btn{display:none!important}
         <div style="font-size:9px;color:var(--txt3);margin-top:6px;text-align:center">
           Botão direito + arraste para girar | 2 dedos no celular
         </div>
+      </div>
+    </div>
+
+    <!-- Equipe Online -->
+    <div class="panel-section" id="sec-team">
+      <div class="panel-header"><h3>👥 Equipe Online (<span id="team-count">0</span>)</h3><span class="arrow">▼</span></div>
+      <div class="panel-content">
+        <div class="users-panel" id="team-list">
+          <div class="tree-empty">Nenhum membro conectado</div>
+        </div>
+        <button class="btn btn-sm btn-secondary btn-block" style="margin-top:8px" id="btn-export-report" onclick="window.app.exportReport()">📄 Gerar Relatório</button>
       </div>
     </div>
   </aside>
@@ -585,6 +739,270 @@ function toast(msg, type='info') {
   t.textContent = msg;
   c.appendChild(t);
   setTimeout(() => { t.style.opacity='0'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+// ╔════════════════════════════════════════════════════════════════╗
+// ║                    LOGIN & OPERAÇÃO                           ║
+// ╚════════════════════════════════════════════════════════════════╝
+
+// Dados do operador logado (preenchidos no login)
+window.operador = null;
+window.operacao = null;
+
+// Preencher data de hoje no campo de login
+document.getElementById('login-date').valueAsDate = new Date();
+
+// Verificar se já tem sessão salva
+(function checkSavedSession() {
+  const s = localStorage.getItem('mptac_login');
+  if (s) {
+    try {
+      const data = JSON.parse(s);
+      if (data.nome && data.rg) {
+        document.getElementById('login-nome').value = data.nome;
+        document.getElementById('login-rg').value = data.rg;
+        if (data.servico) document.getElementById('login-servico').value = data.servico;
+        if (data.servicoCustom) document.getElementById('login-servico-custom').value = data.servicoCustom;
+      }
+    } catch(e) {}
+  }
+  const op = localStorage.getItem('mptac_operacao');
+  if (op) {
+    try {
+      const data = JSON.parse(op);
+      if (data.date) document.getElementById('login-date').value = data.date;
+      if (data.desc) document.getElementById('login-op-desc').value = data.desc;
+    } catch(e) {}
+  }
+})();
+
+window.doLogin = function() {
+  const nome = document.getElementById('login-nome').value.trim();
+  const rg = document.getElementById('login-rg').value.trim();
+  const servicoSel = document.getElementById('login-servico').value;
+  const servicoCustom = document.getElementById('login-servico-custom').value.trim();
+  const servico = servicoCustom || servicoSel;
+  const opDate = document.getElementById('login-date').value;
+  const opDesc = document.getElementById('login-op-desc').value.trim();
+
+  if (!nome) { toast('Preencha seu nome', 'error'); return; }
+  if (!rg) { toast('Preencha seu RG funcional', 'error'); return; }
+  if (!servico) { toast('Selecione ou digite o tipo de serviço', 'error'); return; }
+
+  window.operador = { nome, rg, servico, servicoCustom };
+  window.operacao = { date: opDate, desc: opDesc };
+
+  // Salvar no localStorage
+  localStorage.setItem('mptac_login', JSON.stringify(window.operador));
+  localStorage.setItem('mptac_operacao', JSON.stringify(window.operacao));
+
+  // Esconder login, mostrar app
+  document.getElementById('login-screen').classList.add('hidden');
+
+  // Mostrar barra de operação
+  if (opDate || opDesc) {
+    const header = document.getElementById('op-header');
+    header.style.display = 'flex';
+    const dateFormatted = opDate ? new Date(opDate + 'T12:00:00').toLocaleDateString('pt-BR') : '';
+    document.getElementById('op-date-show').textContent = dateFormatted ? `📅 ${dateFormatted}` : '';
+    document.getElementById('op-desc-show').textContent = opDesc || '';
+  }
+
+  // Inicializar app após login
+  window.app = new App();
+  window.sync = new SyncManager(window.app);
+
+  // Iniciar geolocalização
+  window.geoTracker = new GeoTracker();
+
+  // Salvar dados da operação no Firebase (para que viewers vejam)
+  setTimeout(() => {
+    if (window.sync && window.sync.roomId && opDate) {
+      fbDb.ref(`rooms/${window.sync.roomId}/operacao`).set({
+        date: opDate,
+        desc: opDesc,
+        updatedBy: nome
+      });
+    }
+  }, 2000);
+
+  toast(`Bem-vindo, ${nome}! Serviço: ${servico}`, 'success');
+};
+
+// ╔════════════════════════════════════════════════════════════════╗
+// ║                  GEOLOCALIZAÇÃO EM TEMPO REAL                 ║
+// ╚════════════════════════════════════════════════════════════════╝
+class GeoTracker {
+  constructor() {
+    this._markers = {}; // peerId -> L.marker
+    this._watchId = null;
+    this._lastSend = 0;
+    this._startWatching();
+    this._subscribeToLocations();
+  }
+
+  _startWatching() {
+    if (!navigator.geolocation) {
+      toast('GPS não disponível neste dispositivo', 'info');
+      return;
+    }
+    this._watchId = navigator.geolocation.watchPosition(
+      (pos) => this._onPosition(pos),
+      (err) => { console.warn('[Geo] Erro:', err.message); },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+  }
+
+  _onPosition(pos) {
+    const now = Date.now();
+    if (now - this._lastSend < 3000) return; // throttle 3s
+    this._lastSend = now;
+
+    if (!window.sync || !window.sync.roomId) return;
+    const op = window.operador;
+    if (!op) return;
+
+    fbDb.ref(`rooms/${window.sync.roomId}/locations/${window.sync.myId}`).set({
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracy: pos.coords.accuracy,
+      nome: op.nome,
+      rg: op.rg,
+      servico: op.servico,
+      ts: firebase.database.ServerValue.TIMESTAMP
+    });
+  }
+
+  _subscribeToLocations() {
+    // Espera o sync estar pronto
+    const check = setInterval(() => {
+      if (window.sync && window.sync.roomId) {
+        clearInterval(check);
+        this._listen();
+      }
+    }, 500);
+  }
+
+  _listen() {
+    const ref = fbDb.ref(`rooms/${window.sync.roomId}/locations`);
+
+    ref.on('child_added', (snap) => this._updateMarker(snap.key, snap.val()));
+    ref.on('child_changed', (snap) => this._updateMarker(snap.key, snap.val()));
+    ref.on('child_removed', (snap) => {
+      if (this._markers[snap.key]) {
+        window.app.map.removeLayer(this._markers[snap.key]);
+        delete this._markers[snap.key];
+      }
+      this._updateTeamList();
+    });
+  }
+
+  _updateMarker(peerId, data) {
+    if (!data || !data.lat || !data.lng) return;
+    // Ignorar posições muito antigas (>60s)
+    if (data.ts && Date.now() - data.ts > 60000) return;
+
+    const isMe = peerId === window.sync?.myId;
+    const svcClass = this._serviceClass(data.servico);
+    const labelText = isMe ? `${data.nome} (Você)` : data.nome;
+
+    if (this._markers[peerId]) {
+      this._markers[peerId].setLatLng([data.lat, data.lng]);
+      return;
+    }
+
+    const icon = L.divIcon({
+      className: 'geo-marker',
+      html: `<div class="geo-marker-inner">
+        <div class="geo-dot ${svcClass}"></div>
+        <div class="geo-label">${labelText}</div>
+      </div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+
+    this._markers[peerId] = L.marker([data.lat, data.lng], {
+      icon,
+      interactive: false,
+      zIndexOffset: 2000
+    }).addTo(window.app.map);
+
+    this._updateTeamList();
+  }
+
+  _serviceClass(servico) {
+    if (!servico) return 'outros';
+    const s = servico.toUpperCase();
+    if (s.includes('GPR')) return 'gpr';
+    if (s.includes('GRADIL')) return 'gradil';
+    if (s.includes('REVISTA')) return 'revista';
+    return 'outros';
+  }
+
+  _updateTeamList() {
+    if (!window.sync || !window.sync.roomId) return;
+    fbDb.ref(`rooms/${window.sync.roomId}/locations`).once('value').then(snap => {
+      const data = snap.val() || {};
+      const list = document.getElementById('team-list');
+      const count = document.getElementById('team-count');
+      const opCount = document.getElementById('op-members-count');
+      const entries = Object.entries(data).filter(([k, v]) => v && v.nome);
+
+      count.textContent = entries.length;
+      if (opCount) opCount.textContent = `${entries.length} online`;
+
+      if (entries.length === 0) {
+        list.innerHTML = '<div class="tree-empty">Nenhum membro conectado</div>';
+        return;
+      }
+
+      list.innerHTML = entries.map(([id, v]) => {
+        const isMe = id === window.sync?.myId;
+        const svcClass = this._serviceClass(v.servico);
+        const colors = { gpr:'#3fb950', gradil:'#58a6ff', revista:'#d29922', outros:'#bc8cff' };
+        return `<div class="user-item">
+          <div class="user-dot" style="background:${colors[svcClass]}"></div>
+          <div class="user-info">
+            <div class="u-name">${v.nome}${isMe ? ' (Você)' : ''}</div>
+            <div class="u-detail">RG: ${v.rg || '—'}</div>
+          </div>
+          <span class="user-service" style="background:${colors[svcClass]}22;color:${colors[svcClass]}">${v.servico || '—'}</span>
+        </div>`;
+      }).join('');
+    });
+  }
+
+  destroy() {
+    if (this._watchId) navigator.geolocation.clearWatch(this._watchId);
+    Object.values(this._markers).forEach(m => window.app.map.removeLayer(m));
+    this._markers = {};
+  }
+}
+
+// ╔════════════════════════════════════════════════════════════════╗
+// ║                         PWA SETUP                             ║
+// ╚════════════════════════════════════════════════════════════════╝
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  setTimeout(() => {
+    document.getElementById('pwa-banner').classList.add('show');
+  }, 3000);
+});
+
+window.installPWA = async function() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const result = await deferredPrompt.userChoice;
+  if (result.outcome === 'accepted') toast('App instalado!', 'success');
+  deferredPrompt = null;
+  document.getElementById('pwa-banner').classList.remove('show');
+};
+
+// Registrar Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 // ── PRE-DEFINED STADIUMS ──
@@ -790,6 +1208,98 @@ class App {
       btn.classList.add('copied');
       setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
       toast(`Link de ${type === 'view' ? 'visualização' : 'edição'} copiado!`, 'success');
+    });
+  }
+
+  // ── Gerar Relatório da Operação ──
+  exportReport() {
+    const op = window.operacao || {};
+    const operador = window.operador || {};
+    const dateStr = op.date ? new Date(op.date + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+    const now = new Date().toLocaleString('pt-BR');
+
+    // Coletar marcadores posicionados
+    const markers = Object.values(this.markers).map(m => {
+      const def = OBJECT_LIBRARY.find(d => d.id === m.data.typeId);
+      return {
+        label: m.data.label,
+        tipo: def?.name || m.data.typeId,
+        categoria: def?.cat || '',
+        status: m.data.status || 'ativo',
+        lat: m.data.lat?.toFixed(6),
+        lng: m.data.lng?.toFixed(6),
+        notas: m.data.notes || ''
+      };
+    });
+
+    // Coletar equipe online do Firebase
+    const roomId = window.sync?.roomId || 'BEPE01';
+    fbDb.ref(`rooms/${roomId}/locations`).once('value').then(snap => {
+      const locs = snap.val() || {};
+      const equipe = Object.values(locs).filter(v => v && v.nome).map(v => ({
+        nome: v.nome,
+        rg: v.rg || '—',
+        servico: v.servico || '—',
+        lat: v.lat?.toFixed(6) || '—',
+        lng: v.lng?.toFixed(6) || '—'
+      }));
+
+      // Gerar texto do relatório
+      let report = '';
+      report += '═══════════════════════════════════════════════════\n';
+      report += '         RELATÓRIO DE OPERAÇÃO — MAPA TÁTICO PM\n';
+      report += '═══════════════════════════════════════════════════\n\n';
+      report += `📅 Data do Serviço: ${dateStr}\n`;
+      report += `📋 Operação: ${op.desc || '—'}\n`;
+      report += `🕐 Gerado em: ${now}\n`;
+      report += `👤 Gerado por: ${operador.nome || '—'} (RG: ${operador.rg || '—'})\n`;
+      report += `🏟 Estádio: ${this.currentStadium?.name || '—'}\n\n`;
+
+      report += '───────────────────────────────────────────────────\n';
+      report += '                    EQUIPE EM CAMPO\n';
+      report += '───────────────────────────────────────────────────\n\n';
+
+      if (equipe.length > 0) {
+        equipe.forEach((e, i) => {
+          report += `  ${i+1}. ${e.nome}\n`;
+          report += `     RG: ${e.rg} | Serviço: ${e.servico}\n`;
+          report += `     GPS: ${e.lat}, ${e.lng}\n\n`;
+        });
+      } else {
+        report += '  Nenhum membro com GPS ativo.\n\n';
+      }
+
+      report += '───────────────────────────────────────────────────\n';
+      report += '               POSICIONAMENTO TÁTICO\n';
+      report += '───────────────────────────────────────────────────\n\n';
+
+      if (markers.length > 0) {
+        markers.forEach((m, i) => {
+          report += `  ${i+1}. ${m.label}\n`;
+          report += `     Tipo: ${m.categoria} — ${m.tipo}\n`;
+          report += `     Status: ${m.status}\n`;
+          report += `     Coords: ${m.lat}, ${m.lng}\n`;
+          if (m.notas) report += `     Obs: ${m.notas}\n`;
+          report += '\n';
+        });
+      } else {
+        report += '  Nenhum elemento posicionado.\n\n';
+      }
+
+      report += '═══════════════════════════════════════════════════\n';
+      report += `  Total Equipe: ${equipe.length} | Total Posições: ${markers.length}\n`;
+      report += '═══════════════════════════════════════════════════\n';
+
+      // Download
+      const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const fileName = `relatorio-${op.date || 'operacao'}-${Date.now()}.txt`;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('📄 Relatório gerado!', 'success');
     });
   }
 
@@ -1804,18 +2314,10 @@ class SyncManager {
       const urlParams = new URLSearchParams(window.location.search);
       const salaUrl = urlParams.get('sala');
 
-      // 2) Recupera apenas o NOME do operador do localStorage (ignora sala antiga)
-      let operatorName = 'Operador';
-      const saved = localStorage.getItem('mptac_room');
-      if (saved) {
-        try {
-          const s = JSON.parse(saved);
-          if (s.name) {
-            operatorName = s.name;
-            document.getElementById('room-my-name').value = operatorName;
-          }
-        } catch(e) {}
-      }
+      // 2) Usar nome do operador logado
+      const op = window.operador || {};
+      let operatorName = op.nome || 'Operador';
+      document.getElementById('room-my-name').value = operatorName;
 
       // 3) SEMPRE entra na sala BEPE01 (ou a da URL) — garante que TODOS os dispositivos sincronizam
       const room = salaUrl ? salaUrl.toUpperCase() : 'BEPE01';
@@ -1976,7 +2478,14 @@ class SyncManager {
   _setupPresence() {
     const presRef = fbDb.ref(`rooms/${this.roomId}/presence/${this.myId}`);
     this._presenceRef = presRef;
-    presRef.set({ name: this.myName, joinedAt: firebase.database.ServerValue.TIMESTAMP, lastSeen: firebase.database.ServerValue.TIMESTAMP });
+    const op = window.operador || {};
+    presRef.set({
+      name: op.nome || this.myName,
+      rg: op.rg || '',
+      servico: op.servico || '',
+      joinedAt: firebase.database.ServerValue.TIMESTAMP,
+      lastSeen: firebase.database.ServerValue.TIMESTAMP
+    });
     presRef.onDisconnect().remove();
 
     this._heartbeat = setInterval(() => {
@@ -2161,8 +2670,37 @@ class SyncManager {
 // ╔════════════════════════════════════════════════════════════════╗
 // ║                       INITIALIZE                              ║
 // ╚════════════════════════════════════════════════════════════════╝
-window.app = new App();
-window.sync = new SyncManager(window.app);
+// App e Sync são criados após o login (ver window.doLogin)
+// Se ?modo=view, pular login e entrar direto
+(function autoInit() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('modo') === 'view') {
+    // View mode: login automático como Visitante
+    window.operador = { nome: 'Visitante', rg: '---', servico: 'VISUALIZAÇÃO' };
+    window.operacao = {};
+    document.getElementById('login-screen').classList.add('hidden');
+    window.app = new App();
+    window.sync = new SyncManager(window.app);
+    window.geoTracker = new GeoTracker();
+
+    // Carregar dados da operação do Firebase
+    setTimeout(() => {
+      if (window.sync && window.sync.roomId) {
+        fbDb.ref(`rooms/${window.sync.roomId}/operacao`).on('value', snap => {
+          const op = snap.val();
+          if (op) {
+            window.operacao = op;
+            const header = document.getElementById('op-header');
+            header.style.display = 'flex';
+            const d = op.date ? new Date(op.date + 'T12:00:00').toLocaleDateString('pt-BR') : '';
+            document.getElementById('op-date-show').textContent = d ? `📅 ${d}` : '';
+            document.getElementById('op-desc-show').textContent = op.desc || '';
+          }
+        });
+      }
+    }, 1500);
+  }
+})();
 </script>
 </body>
 </html>
