@@ -875,18 +875,47 @@ class GeoTracker {
       toast('📍 GPS não disponível — ative a localização', 'error');
       return;
     }
-    toast('📍 Ativando GPS...', 'info');
+    this._gpsReady = false;
+    this._posCount = 0;
+    toast('📍 Aguardando sinal GPS preciso...', 'info');
+
     this._watchId = navigator.geolocation.watchPosition(
       (pos) => this._onPosition(pos),
       (err) => {
-        console.warn('[Geo] Erro:', err.message);
-        if (err.code === 1) toast('📍 Permissão de GPS negada — ative nas configurações', 'error');
+        console.warn('[Geo] Erro:', err.code, err.message);
+        if (err.code === 1) toast('📍 Permissão de GPS negada — ative nas configurações do navegador', 'error');
+        if (err.code === 2) toast('📍 GPS indisponível — verifique se a localização está ativada', 'error');
+        if (err.code === 3) toast('📍 GPS demorou para responder — tentando novamente...', 'info');
       },
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+      {
+        enableHighAccuracy: true,  // Força GPS real (não Wi-Fi/torre)
+        maximumAge: 0,             // NUNCA aceitar posição em cache
+        timeout: 30000             // Esperar até 30s pelo GPS real
+      }
     );
   }
 
   _onPosition(pos) {
+    const accuracy = pos.coords.accuracy;
+    this._posCount++;
+
+    // ── FILTRO DE PRECISÃO ──
+    // Rejeitar posições imprecisas (torre celular = 300-3000m, Wi-Fi = 30-100m)
+    // GPS real = 3-20m
+    if (accuracy > 100) {
+      console.log(`[Geo] Posição rejeitada: precisão ${Math.round(accuracy)}m (muito imprecisa)`);
+      if (this._posCount <= 2) {
+        toast(`📍 Precisão baixa (${Math.round(accuracy)}m) — aguardando GPS real...`, 'info');
+      }
+      return;
+    }
+
+    // Primeira posição precisa recebida
+    if (!this._gpsReady) {
+      this._gpsReady = true;
+      toast(`📍 GPS ativo! Precisão: ±${Math.round(accuracy)}m`, 'success');
+    }
+
     const now = Date.now();
     if (now - this._lastSend < 2000) return; // enviar a cada 2s
     this._lastSend = now;
@@ -907,7 +936,7 @@ class GeoTracker {
     const data = {
       lat: pos.coords.latitude,
       lng: pos.coords.longitude,
-      accuracy: Math.round(pos.coords.accuracy),
+      accuracy: Math.round(accuracy),
       heading: heading,
       speed: pos.coords.speed || 0,
       nome: op.nome,
@@ -981,6 +1010,9 @@ class GeoTracker {
   // ── Atualizar/criar marcador ──
   _updateMarker(peerId, data) {
     if (!data || !data.lat || !data.lng) return;
+
+    // Rejeitar posições com precisão ruim (>150m = não é GPS real)
+    if (data.accuracy && data.accuracy > 150) return;
 
     const isMe = peerId === window.sync?.myId;
     const svcClass = this._serviceClass(data.servico);
