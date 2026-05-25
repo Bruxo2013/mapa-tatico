@@ -785,15 +785,22 @@ window.operacao = null;
 // Preencher data de hoje no campo de login
 document.getElementById('login-date').valueAsDate = new Date();
 
-// Verificar se já tem sessão salva
+// Verificar se já tem sessão salva — auto-login se tiver dados completos
 (function checkSavedSession() {
   const s = localStorage.getItem('mptac_login');
+  let autoLogin = false;
   if (s) {
     try {
       const data = JSON.parse(s);
-      if (data.nome && data.rg) {
+      if (data.nome && data.rg && data.servico) {
         document.getElementById('login-nome').value = data.nome;
         document.getElementById('login-rg').value = data.rg;
+        if (data.servico) document.getElementById('login-servico').value = data.servico;
+        if (data.servicoCustom) document.getElementById('login-servico-custom').value = data.servicoCustom;
+        autoLogin = true; // Dados completos → auto-login
+      } else if (data.nome || data.rg) {
+        document.getElementById('login-nome').value = data.nome || '';
+        document.getElementById('login-rg').value = data.rg || '';
         if (data.servico) document.getElementById('login-servico').value = data.servico;
         if (data.servicoCustom) document.getElementById('login-servico-custom').value = data.servicoCustom;
       }
@@ -806,6 +813,11 @@ document.getElementById('login-date').valueAsDate = new Date();
       if (data.date) document.getElementById('login-date').value = data.date;
       if (data.desc) document.getElementById('login-op-desc').value = data.desc;
     } catch(e) {}
+  }
+
+  // Auto-login: se já tem nome, RG e serviço salvos, entra direto
+  if (autoLogin) {
+    setTimeout(() => { window.doLogin(); }, 300);
   }
 })();
 
@@ -1794,9 +1806,6 @@ class App {
     // Update active card
     document.querySelectorAll('.stadium-card').forEach(c => c.classList.remove('active'));
     document.querySelector(`.stadium-card[data-id="${id}"]`)?.classList.add('active');
-
-    // Carregar setores do estádio
-    this._loadSectors(id);
 
     toast(`📍 ${s.name} carregado`, 'success');
 
