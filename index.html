@@ -202,6 +202,20 @@ body.view-mode #room-create-section,
 body.view-mode #room-join-section,
 body.view-mode #room-leave-btn{display:none!important}
 
+/* OPERADOR MODE — can see everything, edit only self GPS/photo, no tactical markers edit */
+body.operador-mode .mode-btn[data-mode="place"],
+body.operador-mode .mode-btn[data-mode="delete"],
+body.operador-mode #btn-clear-all,
+body.operador-mode #sec-objects,
+body.operador-mode #sec-photo,
+body.operador-mode #toggle-right{display:none!important}
+body.operador-mode .popup-actions .btn-danger,
+body.operador-mode .popup-actions .btn-primary{display:none!important}
+body.operador-mode .popup-field input,
+body.operador-mode .popup-field select,
+body.operador-mode .popup-field textarea{pointer-events:none;opacity:.7}
+body.operador-mode #btn-report{display:none!important}
+
 /* ═══ LOGIN SCREEN ═══ */
 #login-screen{position:fixed;inset:0;z-index:10000;background:linear-gradient(135deg,#0d1117 0%,#161b22 50%,#1a2332 100%);display:flex;align-items:center;justify-content:center}
 #login-screen.hidden{display:none}
@@ -482,9 +496,18 @@ body.view-mode #room-leave-btn{display:none!important}
       <span class="hint">Preencha aqui se seu serviço não está na lista</span>
     </div>
 
-    <button class="login-btn" id="login-btn" onclick="window.doLogin()">
-      🚀 ENTRAR NA OPERAÇÃO
-    </button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="login-btn" style="flex:1;background:#58a6ff" onclick="window.doLogin('operador')">
+        👮 ENTRAR COMO OPERADOR
+      </button>
+      <button class="login-btn" style="flex:1;background:#3fb950" onclick="window.doLogin('adm')">
+        🛡 ENTRAR COMO ADM
+      </button>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:6px;font-size:9px;color:var(--txt3)">
+      <span style="flex:1;text-align:center">Vê todos, edita só a si mesmo</span>
+      <span style="flex:1;text-align:center">Acesso total ao mapa tático</span>
+    </div>
 
     <div class="login-divider">INSTALAR NO CELULAR</div>
 
@@ -536,6 +559,7 @@ body.view-mode #room-leave-btn{display:none!important}
       <button class="btn btn-sm btn-secondary" id="btn-clear-all">🧹 Limpar Tudo</button>
       <button class="btn btn-sm btn-secondary" id="btn-report" onclick="window.app.exportReport()">📄 Relatório</button>
       <button class="btn btn-sm btn-primary" id="btn-export">📷 Exportar PNG</button>
+      <button class="btn btn-sm btn-secondary" id="btn-logout" onclick="window.doLogout()" title="Sair e voltar ao login" style="background:rgba(248,81,73,.15);color:#f85149;border-color:rgba(248,81,73,.3)">🚪 Sair</button>
     </div>
   </header>
 
@@ -744,6 +768,17 @@ body.view-mode #room-leave-btn{display:none!important}
     </div>
 
     <div class="room-section">
+      <div class="share-box" style="border-color:var(--accent)">
+        <div class="share-label" style="color:var(--accent)">👮 Operador (Militar)</div>
+        <p style="font-size:10px;color:var(--txt3);margin-bottom:6px">Compartilha GPS em tempo real, anexa fotos, mas não edita o mapa tático.</p>
+        <div class="share-link-row">
+          <input type="text" id="share-link-operador" readonly>
+          <button class="copy-btn" onclick="window.app.copyShareLink('operador')">📋 Copiar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="room-section">
       <div class="share-box adm-box">
         <div class="share-label">🛡 Edição (Administrador)</div>
         <p style="font-size:10px;color:var(--txt3);margin-bottom:6px">Acesso completo: posicionar, editar, mover e remover equipes no mapa.</p>
@@ -817,11 +852,14 @@ document.getElementById('login-date').valueAsDate = new Date();
 
   // Auto-login: se já tem nome, RG e serviço salvos, entra direto
   if (autoLogin) {
-    setTimeout(() => { window.doLogin(); }, 300);
+    // Recuperar modo salvo (operador ou adm)
+    const savedLogin = JSON.parse(localStorage.getItem('mptac_login') || '{}');
+    const savedModo = savedLogin.modo || 'operador';
+    setTimeout(() => { window.doLogin(savedModo); }, 300);
   }
 })();
 
-window.doLogin = function() {
+window.doLogin = function(modo) {
   const nome = document.getElementById('login-nome').value.trim();
   const rg = document.getElementById('login-rg').value.trim();
   const servicoSel = document.getElementById('login-servico').value;
@@ -834,11 +872,15 @@ window.doLogin = function() {
   if (!rg) { toast('Preencha seu RG funcional', 'error'); return; }
   if (!servico) { toast('Selecione ou digite o tipo de serviço', 'error'); return; }
 
+  // Definir modo de acesso: 'operador' ou 'adm'
+  const accessMode = modo || 'operador';
+  window.loginMode = accessMode;
+
   window.operador = { nome, rg, servico, servicoCustom };
   window.operacao = { date: opDate, desc: opDesc };
 
-  // Salvar no localStorage
-  localStorage.setItem('mptac_login', JSON.stringify(window.operador));
+  // Salvar no localStorage (incluindo modo)
+  localStorage.setItem('mptac_login', JSON.stringify({ ...window.operador, modo: accessMode }));
   localStorage.setItem('mptac_operacao', JSON.stringify(window.operacao));
 
   // Esconder login, mostrar app
@@ -853,6 +895,11 @@ window.doLogin = function() {
     document.getElementById('op-desc-show').textContent = opDesc || '';
   }
 
+  // Forçar modo via URL se presente
+  const urlModo = new URLSearchParams(window.location.search).get('modo');
+  if (urlModo === 'adm') window.loginMode = 'adm';
+  if (urlModo === 'operador') window.loginMode = 'operador';
+
   // Inicializar app após login
   window.app = new App();
   window.sync = new SyncManager(window.app);
@@ -860,9 +907,9 @@ window.doLogin = function() {
   // Iniciar geolocalização
   window.geoTracker = new GeoTracker();
 
-  // Salvar dados da operação no Firebase (para que viewers vejam)
+  // Salvar dados da operação no Firebase (para que viewers vejam — somente ADM)
   setTimeout(() => {
-    if (window.sync && window.sync.roomId && opDate) {
+    if (window.sync && window.sync.roomId && opDate && window.loginMode === 'adm') {
       fbDb.ref(`rooms/${window.sync.roomId}/operacao`).set({
         date: opDate,
         desc: opDesc,
@@ -871,7 +918,24 @@ window.doLogin = function() {
     }
   }, 2000);
 
-  toast(`Bem-vindo, ${nome}! Serviço: ${servico}`, 'success');
+  const modoLabel = accessMode === 'adm' ? 'ADM (acesso total)' : 'Operador';
+  toast(`Bem-vindo, ${nome}! Modo: ${modoLabel}`, 'success');
+};
+
+// Logout — limpar sessão e voltar ao login
+window.doLogout = function() {
+  localStorage.removeItem('mptac_login');
+  // Limpar GPS e presença
+  if (window.geoTracker) window.geoTracker.destroy();
+  if (window.sync) {
+    try {
+      if (window.sync._presenceRef) window.sync._presenceRef.remove();
+      const locRef = fbDb.ref(`rooms/${window.sync.roomId}/locations/${window.sync.myId}`);
+      locRef.remove();
+    } catch(e) {}
+  }
+  // Recarregar a página
+  window.location.href = window.location.pathname;
 };
 
 // ╔════════════════════════════════════════════════════════════════╗
@@ -900,21 +964,39 @@ class GeoTracker {
     }
     this._gpsReady = false;
     this._posCount = 0;
+    this._bestAccuracy = Infinity;
+    this._lastGoodPos = null;
     toast('📍 Aguardando sinal GPS preciso...', 'info');
 
     this._watchId = navigator.geolocation.watchPosition(
       (pos) => this._onPosition(pos),
       (err) => {
         console.warn('[Geo] Erro:', err.code, err.message);
-        if (err.code === 1) toast('📍 Permissão de GPS negada — ative nas configurações do navegador', 'error');
-        if (err.code === 2) toast('📍 GPS indisponível — verifique se a localização está ativada', 'error');
-        if (err.code === 3) toast('📍 GPS demorou para responder — tentando novamente...', 'info');
+        if (err.code === 1) toast('📍 Permissão de GPS negada — ative nas configurações', 'error');
+        if (err.code === 2) {
+          toast('📍 GPS indisponível — tentando novamente...', 'error');
+          // Reiniciar o watch após 5s
+          setTimeout(() => this._restartWatch(), 5000);
+        }
+        if (err.code === 3) {
+          // Timeout — reiniciar com parâmetros mais flexíveis
+          this._restartWatch();
+        }
       },
       {
         enableHighAccuracy: true,  // Força GPS real (não Wi-Fi/torre)
         maximumAge: 0,             // NUNCA aceitar posição em cache
-        timeout: 30000             // Esperar até 30s pelo GPS real
+        timeout: 15000             // 15s timeout (mais responsivo)
       }
+    );
+  }
+
+  _restartWatch() {
+    if (this._watchId) navigator.geolocation.clearWatch(this._watchId);
+    this._watchId = navigator.geolocation.watchPosition(
+      (pos) => this._onPosition(pos),
+      (err) => console.warn('[Geo] Erro restart:', err.message),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
     );
   }
 
@@ -922,15 +1004,37 @@ class GeoTracker {
     const accuracy = pos.coords.accuracy;
     this._posCount++;
 
-    // ── FILTRO DE PRECISÃO ──
-    // Rejeitar posições imprecisas (torre celular = 300-3000m, Wi-Fi = 30-100m)
-    // GPS real = 3-20m
-    if (accuracy > 100) {
-      console.log(`[Geo] Posição rejeitada: precisão ${Math.round(accuracy)}m (muito imprecisa)`);
-      if (this._posCount <= 2) {
-        toast(`📍 Precisão baixa (${Math.round(accuracy)}m) — aguardando GPS real...`, 'info');
+    // ── FILTRO DE PRECISÃO INTELIGENTE ──
+    // GPS real = 3-20m, Wi-Fi = 30-100m, Torre = 300-3000m
+    // Aceitar <= 50m (GPS + Wi-Fi boa), rejeitar > 50m
+    const MAX_ACCURACY = 50;
+
+    if (accuracy > MAX_ACCURACY) {
+      console.log(`[Geo] Rejeitada: ±${Math.round(accuracy)}m > ${MAX_ACCURACY}m`);
+      if (this._posCount <= 3) {
+        toast(`📍 Precisão ${Math.round(accuracy)}m — aguardando GPS...`, 'info');
       }
       return;
+    }
+
+    // Rastrear melhor precisão
+    if (accuracy < this._bestAccuracy) {
+      this._bestAccuracy = accuracy;
+    }
+
+    // ── Filtro de salto (teleporte) ──
+    // Se a posição mudou drasticamente (>500m) em pouco tempo, rejeitar
+    if (this._lastGoodPos) {
+      const dist = this._haversine(
+        this._lastGoodPos.lat, this._lastGoodPos.lng,
+        pos.coords.latitude, pos.coords.longitude
+      );
+      const timeDiff = Date.now() - this._lastGoodPos.ts;
+      // Se moveu >500m em <3s → é salto, rejeitar
+      if (dist > 500 && timeDiff < 3000) {
+        console.log(`[Geo] Salto rejeitado: ${Math.round(dist)}m em ${timeDiff}ms`);
+        return;
+      }
     }
 
     // Primeira posição precisa recebida
@@ -939,8 +1043,12 @@ class GeoTracker {
       toast(`📍 GPS ativo! Precisão: ±${Math.round(accuracy)}m`, 'success');
     }
 
+    // Guardar como última posição boa
+    this._lastGoodPos = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+
     const now = Date.now();
-    if (now - this._lastSend < 2000) return; // enviar a cada 2s
+    // Enviar a cada 1s para atualização mais fluida em tempo real
+    if (now - this._lastSend < 1000) return;
     this._lastSend = now;
 
     if (!window.sync || !window.sync.roomId) return;
@@ -975,6 +1083,15 @@ class GeoTracker {
       locRef.onDisconnect().remove();
       this._disconnectSet = true;
     }
+  }
+
+  // Cálculo de distância Haversine (metros)
+  _haversine(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
 
   _calcHeading(lat1, lng1, lat2, lng2) {
@@ -1034,8 +1151,8 @@ class GeoTracker {
   _updateMarker(peerId, data) {
     if (!data || !data.lat || !data.lng) return;
 
-    // Rejeitar posições com precisão ruim (>150m = não é GPS real)
-    if (data.accuracy && data.accuracy > 150) return;
+    // Rejeitar posições com precisão ruim (>80m = não é GPS real)
+    if (data.accuracy && data.accuracy > 80) return;
 
     const isMe = peerId === window.sync?.myId;
     const svcClass = this._serviceClass(data.servico);
@@ -1567,9 +1684,19 @@ class App {
     this.currentStadium = null;
     this._sectorLayers = [];
 
-    // ── MODO DE ACESSO: adm (edição) ou view (visualização) ──
+    // ── MODO DE ACESSO: adm, operador, ou view ──
     const urlParams = new URLSearchParams(window.location.search);
-    this.accessMode = urlParams.get('modo') === 'view' ? 'view' : 'adm';
+    const urlModo = urlParams.get('modo');
+    if (urlModo === 'view') {
+      this.accessMode = 'view';
+    } else if (urlModo === 'adm') {
+      this.accessMode = 'adm';
+    } else if (urlModo === 'operador') {
+      this.accessMode = 'operador';
+    } else {
+      // Usar modo do login
+      this.accessMode = window.loginMode || 'operador';
+    }
     this._applyAccessMode();
 
     this.init();
@@ -1597,13 +1724,18 @@ class App {
   // ── Modo de Acesso ──
   _applyAccessMode() {
     const badge = document.getElementById('access-badge');
+    document.body.classList.remove('view-mode', 'operador-mode');
     if (this.accessMode === 'view') {
       document.body.classList.add('view-mode');
       badge.textContent = '👁 VISUALIZAÇÃO';
       badge.className = 'access-badge view';
-      this.currentMode = 'pan'; // força modo navegar
+      this.currentMode = 'pan';
+    } else if (this.accessMode === 'operador') {
+      document.body.classList.add('operador-mode');
+      badge.textContent = '👮 OPERADOR';
+      badge.className = 'access-badge view';
+      this.currentMode = 'pan';
     } else {
-      document.body.classList.remove('view-mode');
       badge.textContent = '🛡 ADM';
       badge.className = 'access-badge adm';
     }
@@ -1613,15 +1745,19 @@ class App {
     const base = window.location.origin + window.location.pathname;
     const sala = new URLSearchParams(window.location.search).get('sala') || 'BEPE01';
     const viewLink = `${base}?sala=${sala}&modo=view`;
+    const operadorLink = `${base}?sala=${sala}&modo=operador`;
     const admLink = `${base}?sala=${sala}&modo=adm`;
     const elView = document.getElementById('share-link-view');
+    const elOp = document.getElementById('share-link-operador');
     const elAdm = document.getElementById('share-link-adm');
     if (elView) elView.value = viewLink;
+    if (elOp) elOp.value = operadorLink;
     if (elAdm) elAdm.value = admLink;
   }
 
   copyShareLink(type) {
-    const input = document.getElementById(type === 'view' ? 'share-link-view' : 'share-link-adm');
+    const ids = { view: 'share-link-view', operador: 'share-link-operador', adm: 'share-link-adm' };
+    const input = document.getElementById(ids[type] || 'share-link-view');
     if (!input) return;
     navigator.clipboard.writeText(input.value).then(() => {
       const btn = input.parentElement.querySelector('.copy-btn');
@@ -1731,7 +1867,14 @@ class App {
       center: [-22.9121, -43.2302],
       zoom: 17,
       zoomControl: true,
-      attributionControl: true
+      attributionControl: true,
+      preferCanvas: true,          // Performance: renderizar com Canvas
+      fadeAnimation: true,
+      zoomAnimation: true,
+      markerZoomAnimation: true,
+      updateWhenZooming: false,    // Estabilidade: não recarregar tiles durante zoom
+      updateWhenIdle: true,        // Carregar tiles apenas quando parado
+      keepBuffer: 4                // Manter mais tiles em buffer para menos flicker
     });
     this.bearing = 0;
 
@@ -1762,8 +1905,20 @@ class App {
     this.currentTileLayer = L.tileLayer(layer.url, {
       attribution: layer.attr,
       maxZoom: 19,
-      subdomains: 'abc'
+      subdomains: 'abc',
+      errorTileUrl: '',              // Não mostrar tile de erro
+      crossOrigin: true,
+      updateWhenIdle: true,
+      keepBuffer: 4
     }).addTo(this.map);
+
+    // Retry tiles que falharam
+    this.currentTileLayer.on('tileerror', (e) => {
+      const tile = e.tile;
+      const src = tile.src;
+      setTimeout(() => { tile.src = ''; tile.src = src; }, 2000);
+    });
+
     // Add street labels overlay on satellite
     if (style === 'satellite') {
       this.labelsOverlay = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
@@ -1913,7 +2068,7 @@ class App {
     });
 
     document.getElementById('btn-clear-all').addEventListener('click', () => {
-      if (this.accessMode === 'view') { toast('🔒 Sem permissão', 'info'); return; }
+      if (this.accessMode === 'view' || this.accessMode === 'operador') { toast('🔒 Sem permissão', 'info'); return; }
       if (Object.keys(this.markers).length === 0) return;
       Object.values(this.markers).forEach(m => this.map.removeLayer(m.marker));
       this.markers = {};
@@ -2313,8 +2468,8 @@ class App {
 
   // ── Mode Management ──
   setMode(mode) {
-    if (this.accessMode === 'view' && (mode === 'place' || mode === 'delete')) {
-      toast('🔒 Modo somente visualização — sem permissão para editar', 'info');
+    if ((this.accessMode === 'view' || this.accessMode === 'operador') && (mode === 'place' || mode === 'delete')) {
+      toast('🔒 Sem permissão para editar o mapa tático', 'info');
       return;
     }
     this.currentMode = mode;
@@ -2345,7 +2500,7 @@ class App {
 
   // ── Map Click ──
   onMapClick(e) {
-    if (this.accessMode === 'view') return;
+    if (this.accessMode === 'view' || this.accessMode === 'operador') return;
     if (this.currentMode === 'place') {
       this.placeObject(e.latlng.lat, e.latlng.lng);
     }
@@ -2391,8 +2546,8 @@ class App {
   buildEditPopupHTML(data) {
     const def = OBJECT_LIBRARY.find(d => d.id === data.typeId);
 
-    // Modo VISUALIZAÇÃO — popup somente leitura
-    if (this.accessMode === 'view') {
+    // Modo VISUALIZAÇÃO / OPERADOR — popup somente leitura
+    if (this.accessMode === 'view' || this.accessMode === 'operador') {
       const statusLabel = (data.status || 'ativo').charAt(0).toUpperCase() + (data.status || 'ativo').slice(1);
       const statusColor = data.status === 'ativo' ? '#3fb950' : data.status === 'finalizado' ? '#f85149' : '#d29922';
       return `
@@ -2410,7 +2565,7 @@ class App {
             <div style="color:var(--txt3);font-size:10px">📍 ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</div>
           </div>
           <div style="text-align:center;padding:4px 0">
-            <span style="font-size:9px;color:var(--txt3);background:var(--bg3);padding:2px 8px;border-radius:4px">🔒 Modo Visualização</span>
+            <span style="font-size:9px;color:var(--txt3);background:var(--bg3);padding:2px 8px;border-radius:4px">🔒 ${this.accessMode === 'operador' ? 'Modo Operador' : 'Modo Visualização'}</span>
           </div>
         </div>
       `;
@@ -2498,7 +2653,7 @@ class App {
 
   // ── Save data from popup fields ──
   saveFromPopup(id) {
-    if (this.accessMode === 'view') { toast('🔒 Sem permissão para editar', 'info'); return; }
+    if (this.accessMode === 'view' || this.accessMode === 'operador') { toast('🔒 Sem permissão para editar', 'info'); return; }
     const m = this.markers[id];
     if (!m) return;
 
@@ -2561,7 +2716,7 @@ class App {
 
     const marker = L.marker([data.lat, data.lng], {
       icon,
-      draggable: this.accessMode !== 'view',
+      draggable: this.accessMode === 'adm',
       zIndexOffset: 1000
     }).addTo(this.map);
 
@@ -2626,7 +2781,7 @@ class App {
 
   // ── Delete ──
   deleteObject(id) {
-    if (this.accessMode === 'view') { toast('🔒 Sem permissão para remover', 'info'); return; }
+    if (this.accessMode === 'view' || this.accessMode === 'operador') { toast('🔒 Sem permissão para remover', 'info'); return; }
     const m = this.markers[id];
     if (!m) return;
     const def = OBJECT_LIBRARY.find(d => d.id === m.data.typeId);
