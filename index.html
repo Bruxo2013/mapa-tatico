@@ -485,6 +485,17 @@ body.view-mode #room-leave-btn{display:none!important}
     <button class="login-btn" id="login-btn" onclick="window.doLogin()">
       🚀 ENTRAR NA OPERAÇÃO
     </button>
+
+    <div class="login-divider">INSTALAR NO CELULAR</div>
+
+    <button class="login-btn" id="login-install-btn" style="background:#3fb950;display:none" onclick="window.installPWA()">
+      📲 INSTALAR APP NO CELULAR
+    </button>
+    <div id="install-manual" style="text-align:center;font-size:10px;color:var(--txt3);margin-top:4px">
+      <span id="install-hint-ios" style="display:none">No Safari: toque em <b>Compartilhar ⬆</b> → <b>"Adicionar à Tela de Início"</b></span>
+      <span id="install-hint-android" style="display:none">No Chrome: toque no menu <b>⋮</b> → <b>"Adicionar à tela inicial"</b></span>
+      <span id="install-hint-installed" style="display:none;color:#3fb950">✅ App já instalado!</span>
+    </div>
   </div>
 </div>
 
@@ -1307,9 +1318,14 @@ class GeoTracker {
 // ║                         PWA SETUP                             ║
 // ╚════════════════════════════════════════════════════════════════╝
 let deferredPrompt = null;
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
+  // Mostrar botão na tela de login
+  const loginBtn = document.getElementById('login-install-btn');
+  if (loginBtn) loginBtn.style.display = 'block';
+  // Mostrar banner flutuante após 3s dentro do app
   setTimeout(() => {
     document.getElementById('pwa-banner').classList.add('show');
   }, 3000);
@@ -1319,10 +1335,40 @@ window.installPWA = async function() {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
   const result = await deferredPrompt.userChoice;
-  if (result.outcome === 'accepted') toast('App instalado!', 'success');
+  if (result.outcome === 'accepted') {
+    toast('✅ App instalado na tela inicial!', 'success');
+    document.getElementById('login-install-btn').style.display = 'none';
+    document.getElementById('install-hint-installed').style.display = 'inline';
+  }
   deferredPrompt = null;
   document.getElementById('pwa-banner').classList.remove('show');
 };
+
+// Detectar plataforma e mostrar dica de instalação
+(function detectInstallHint() {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid = /Android/.test(navigator.userAgent);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
+  if (isStandalone) {
+    // Já está rodando como app instalado
+    const el = document.getElementById('install-hint-installed');
+    if (el) el.style.display = 'inline';
+  } else if (isIOS) {
+    const el = document.getElementById('install-hint-ios');
+    if (el) el.style.display = 'inline';
+  } else if (isAndroid) {
+    const el = document.getElementById('install-hint-android');
+    if (el) el.style.display = 'inline';
+    // No Android sem beforeinstallprompt, mostrar dica manual
+    setTimeout(() => {
+      if (!deferredPrompt) {
+        const btn = document.getElementById('login-install-btn');
+        if (btn) btn.style.display = 'none';
+      }
+    }, 2000);
+  }
+})();
 
 // Registrar Service Worker
 if ('serviceWorker' in navigator) {
