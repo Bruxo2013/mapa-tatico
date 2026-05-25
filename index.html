@@ -2080,15 +2080,13 @@ class App {
     const layer = TILE_LAYERS[baseStyle] || TILE_LAYERS.voyager;
     const isSat = baseStyle === 'satellite';
 
-    // HD: CARTO usa {r}=@2x (retina automático). Satélite Esri (sem {r}) usa detectRetina.
-    const hasRetinaPlaceholder = layer.url.includes('{r}');
-
+    // HD via {r}=@2x (CARTO). NÃO usar detectRetina: ele desloca o zoom (+1) e
+    // reduz o maxZoom da camada, fazendo a imagem SUMIR no zoom máximo.
     this.currentTileLayer = L.tileLayer(layer.url, {
       attribution: layer.attr,
-      maxZoom: 21,                          // Permite aproximar bem (zoom tático)
-      maxNativeZoom: isSat ? 19 : 20,       // Tiles reais até aqui; acima faz upscale nítido
+      maxZoom: 21,                          // Zoom máximo permitido (upscale acima do nativo)
+      maxNativeZoom: isSat ? 19 : 20,       // Último nível com tiles reais; acima faz upscale
       subdomains: layer.subdomains || 'abc',
-      detectRetina: !hasRetinaPlaceholder,  // HD em telas de alta densidade
       errorTileUrl: '',                     // Não mostrar tile de erro
       crossOrigin: true,
       updateWhenIdle: false,                // Carrega tiles enquanto move (mais fluido)
