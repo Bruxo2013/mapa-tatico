@@ -1758,17 +1758,13 @@ const STADIUMS = [
 ];
 
 // ── ENTRADAS / PORTÕES DOS ESTÁDIOS ──
-// 8 entradas ao redor de cada estádio (A=Norte, B=NE, C=Leste, D=SE,
-// E=Sul, F=SO, G=Oeste, H=NO). O raio é a distância do centro até a entrada.
+// Os estádios têm 4 entradas: Norte, Leste, Sul e Oeste.
+// O raio é a distância do centro até a entrada.
 const ENTRANCE_RING = [
-  { letter:'A', sector:'Norte',     bearing:0   },
-  { letter:'B', sector:'Nordeste',  bearing:45  },
-  { letter:'C', sector:'Leste',     bearing:90  },
-  { letter:'D', sector:'Sudeste',   bearing:135 },
-  { letter:'E', sector:'Sul',       bearing:180 },
-  { letter:'F', sector:'Sudoeste',  bearing:225 },
-  { letter:'G', sector:'Oeste',     bearing:270 },
-  { letter:'H', sector:'Noroeste',  bearing:315 }
+  { letter:'N', sector:'Norte', bearing:0   },
+  { letter:'L', sector:'Leste', bearing:90  },
+  { letter:'S', sector:'Sul',   bearing:180 },
+  { letter:'O', sector:'Oeste', bearing:270 }
 ];
 // Raio (metros) do anel de entradas por estádio
 const STADIUM_ENTRANCE_RADIUS = {
@@ -2299,7 +2295,7 @@ class App {
         className: 'entrance-marker',
         html: `<div class="ent-inner">
           <div class="ent-pin"><span>${ent.letter}</span></div>
-          <div class="ent-label">Entrada ${ent.letter} · ${ent.sector}</div>
+          <div class="ent-label">Entrada ${ent.sector}</div>
         </div>`,
         iconSize: [0, 0],
         iconAnchor: [0, 0]
