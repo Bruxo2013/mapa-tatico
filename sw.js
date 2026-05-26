@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mapa-tatico-v1';
+const CACHE_NAME = 'mapa-tatico-v2';
 const ASSETS = [
   './',
   './index.html',

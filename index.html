@@ -107,7 +107,11 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 
 /* MAP CONTAINER */
 #map-container{position:relative;z-index:1;overflow:hidden;background:#e8e0d8}
-#map-wrapper{position:absolute;inset:0;transform-origin:center center}
+/* Wrapper inflado: o mapa renderiza 150% da área visível, então ao girar
+   precisa de pouco scale CSS pra cobrir os cantos = sem borrão.
+   No Norte, transform é vazio (definido em JS), Leaflet enxerga o tamanho
+   real e o arrasto continua nativo/preciso (deltas cancelam o offset). */
+#map-wrapper{position:absolute;top:-25%;left:-25%;width:150%;height:150%;transform-origin:center center}
 #map-wrapper.smooth{transition:transform .5s cubic-bezier(.25,.46,.45,.94)}
 #map-wrapper.snap{transition:transform .7s cubic-bezier(.16,1,.3,1)}
 #map{width:100%;height:100%}
@@ -2580,8 +2584,10 @@ class App {
       // How much bigger rotated rect needs to be to cover original
       const needW = w * cosA + h * sinA;
       const needH = w * sinA + h * cosA;
-      // Wrapper agora é 100% (sem inflar). Escala cobre cantos só quando girado.
-      const scale = Math.max(needW / w, needH / h, 1);
+      // Wrapper renderiza a 150% (oversized). Já cobre boa parte dos cantos
+      // sem escala adicional → rotação nítida.
+      const available = 1.5;
+      const scale = Math.max(needW / (w * available), needH / (h * available), 1);
       // No Norte (sem giro), NÃO aplicar transform — mapa fica nativo/preciso ao toque
       if (this.bearing === 0) {
         mapWrapper.style.transform = '';
