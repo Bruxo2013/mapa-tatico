@@ -275,6 +275,13 @@ body.operador-mode #share-section-adm{display:none!important}
 .sector-label.field{font-size:11px;color:#4ade80}
 .sector-label.vip{font-size:8px;color:#c084fc}
 
+/* ═══ ENTRADAS / PORTÕES DO ESTÁDIO ═══ */
+.entrance-marker{background:none!important;border:none!important}
+.ent-inner{display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-62%);pointer-events:none}
+.ent-pin{width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#f59e0b;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+.ent-pin span{transform:rotate(45deg);color:#fff;font-size:11px;font-weight:800;line-height:1}
+.ent-label{margin-top:3px;font-size:9px;font-weight:700;color:#fff;background:rgba(0,0,0,.78);padding:1px 6px;border-radius:8px;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
 /* ═══ PHOTO POPUP / CAPTURE ═══ */
 .geo-popup{padding:12px 14px;max-width:280px}
 .geo-popup-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
@@ -1750,6 +1757,34 @@ const STADIUMS = [
   }
 ];
 
+// ── ENTRADAS / PORTÕES DOS ESTÁDIOS ──
+// 8 entradas ao redor de cada estádio (A=Norte, B=NE, C=Leste, D=SE,
+// E=Sul, F=SO, G=Oeste, H=NO). O raio é a distância do centro até a entrada.
+const ENTRANCE_RING = [
+  { letter:'A', sector:'Norte',     bearing:0   },
+  { letter:'B', sector:'Nordeste',  bearing:45  },
+  { letter:'C', sector:'Leste',     bearing:90  },
+  { letter:'D', sector:'Sudeste',   bearing:135 },
+  { letter:'E', sector:'Sul',       bearing:180 },
+  { letter:'F', sector:'Sudoeste',  bearing:225 },
+  { letter:'G', sector:'Oeste',     bearing:270 },
+  { letter:'H', sector:'Noroeste',  bearing:315 }
+];
+// Raio (metros) do anel de entradas por estádio
+const STADIUM_ENTRANCE_RADIUS = {
+  maracana: 135,
+  engenhao: 145,
+  saojanuario: 95
+};
+
+// Gera lat/lng de uma entrada a partir do centro + direção + distância
+function offsetLatLng(lat, lng, bearingDeg, distM) {
+  const rad = bearingDeg * Math.PI / 180;
+  const dLat = (distM * Math.cos(rad)) / 111320;
+  const dLng = (distM * Math.sin(rad)) / (111320 * Math.cos(lat * Math.PI / 180));
+  return [lat + dLat, lng + dLng];
+}
+
 // ── SETORES INTERNOS DOS ESTÁDIOS ──
 const STADIUM_SECTORS = {
   maracana: {
@@ -1919,6 +1954,7 @@ class App {
     this.labelsOverlay = null;
     this.currentStadium = null;
     this._sectorLayers = [];
+    this._entranceLayers = [];
 
     // ── MODO DE ACESSO: adm, operador, ou view ──
     const urlParams = new URLSearchParams(window.location.search);
@@ -2144,6 +2180,7 @@ class App {
     this.map.on('zoomend', () => {
       document.getElementById('status-zoom').textContent = `Zoom: ${this.map.getZoom()}`;
       this._updateSectorVisibility();
+      this._updateEntranceVisibility();
     });
   }
 
@@ -2235,10 +2272,55 @@ class App {
     document.querySelectorAll('.stadium-card').forEach(c => c.classList.remove('active'));
     document.querySelector(`.stadium-card[data-id="${id}"]`)?.classList.add('active');
 
+    // Carregar entradas/portões nomeados do estádio
+    this._loadEntrances(id);
+
     toast(`📍 ${s.name} carregado`, 'success');
 
     // Estádio é independente por dispositivo — salva localmente
     localStorage.setItem('mptac_stadium', id);
+  }
+
+  // ── Entradas/portões nomeados do estádio ──
+  _loadEntrances(stadiumId) {
+    // Remover entradas anteriores
+    if (this._entranceLayers) {
+      this._entranceLayers.forEach(l => this.map.removeLayer(l));
+    }
+    this._entranceLayers = [];
+
+    const s = STADIUMS.find(st => st.id === stadiumId);
+    if (!s) return;
+    const radius = STADIUM_ENTRANCE_RADIUS[stadiumId] || 130;
+
+    ENTRANCE_RING.forEach(ent => {
+      const [lat, lng] = offsetLatLng(s.lat, s.lng, ent.bearing, radius);
+      const icon = L.divIcon({
+        className: 'entrance-marker',
+        html: `<div class="ent-inner">
+          <div class="ent-pin"><span>${ent.letter}</span></div>
+          <div class="ent-label">Entrada ${ent.letter} · ${ent.sector}</div>
+        </div>`,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
+      });
+      this._entranceLayers.push(
+        L.marker([lat, lng], { icon, interactive: false, keyboard: false, zIndexOffset: 600 })
+      );
+    });
+
+    this._updateEntranceVisibility();
+  }
+
+  // Mostra as entradas só com zoom suficiente (evita poluição visual)
+  _updateEntranceVisibility() {
+    if (!this._entranceLayers) return;
+    const show = this.map.getZoom() >= 16;
+    this._entranceLayers.forEach(m => {
+      const on = this.map.hasLayer(m);
+      if (show && !on) m.addTo(this.map);
+      else if (!show && on) this.map.removeLayer(m);
+    });
   }
 
   // ── Setores internos do estádio ──
