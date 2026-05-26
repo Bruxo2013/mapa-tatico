@@ -306,6 +306,17 @@ body.operador-mode #share-section-adm{display:none!important}
 .user-info .u-name{font-weight:600;color:var(--txt)}
 .user-info .u-detail{font-size:9px;color:var(--txt3)}
 .user-service{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap}
+.user-item.following{background:rgba(88,166,255,.14);box-shadow:inset 0 0 0 1px var(--accent);border-radius:6px}
+.follow-toggle{flex-shrink:0;width:28px;height:28px;border:1px solid var(--border);background:var(--bg3);color:var(--txt2);border-radius:7px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s;margin-left:2px}
+.follow-toggle:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.follow-toggle.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* Faixa "Seguindo: NOME" sobre o mapa */
+.follow-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:1100;display:flex;align-items:center;gap:8px;background:rgba(88,166,255,.96);color:#fff;border-radius:20px;padding:6px 8px 6px 14px;font-size:12px;font-weight:700;box-shadow:0 3px 12px rgba(0,0,0,.45);backdrop-filter:blur(6px);max-width:80vw}
+.follow-banner #follow-banner-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.follow-banner .fb-dot{width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1.5s infinite;flex-shrink:0}
+.follow-banner .fb-stop{background:rgba(255,255,255,.25);border:none;color:#fff;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.follow-banner .fb-stop:hover{background:rgba(255,255,255,.45)}
 
 /* PWA install banner */
 .pwa-install{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);z-index:9500;background:var(--bg2);border:1px solid var(--accent);border-radius:12px;padding:12px 20px;display:none;align-items:center;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
@@ -681,6 +692,11 @@ body.operador-mode #share-section-adm{display:none!important}
       <div><span class="cb-label">LAT</span> <span class="cb-val" id="cb-lat">—</span></div>
       <div><span class="cb-label">LON</span> <span class="cb-val" id="cb-lng">—</span></div>
     </div>
+    <div class="follow-banner" id="follow-banner" style="display:none">
+      <span class="fb-dot"></span>
+      <span id="follow-banner-text">Seguindo</span>
+      <button class="fb-stop" onclick="window.geoTracker && window.geoTracker.stopFollowing()" title="Parar de seguir">✕</button>
+    </div>
     <div id="map-wrapper">
       <div id="map"></div>
     </div>
@@ -1030,7 +1046,7 @@ class GeoTracker {
     this._lastSend = 0;
     this._locRef = null;
     this._kalman = new GPSKalmanFilter(2.5);  // filtro de precisão
-    this._followMe = false;                    // seguir minha posição no mapa
+    this._followPeerId = null;                 // id do militar sendo seguido (null = nenhum)
     this._lastRawAccuracy = null;
     this._startWatching();
     this._subscribeToLocations();
@@ -1142,8 +1158,8 @@ class GeoTracker {
 
     this._lastGoodPos = { lat, lng, ts: now };
 
-    // Seguir minha posição no mapa, se ativado
-    if (this._followMe && window.app && window.app.map) {
+    // Seguir minha posição (sem atraso de rede) se eu for o alvo do "seguir"
+    if (this._followPeerId && this._followPeerId === (window.sync && window.sync.myId) && window.app && window.app.map) {
       window.app.map.panTo([lat, lng], { animate: true, duration: 0.5 });
     }
 
@@ -1202,23 +1218,76 @@ class GeoTracker {
     el.innerHTML = `<span style="color:${color}">${icon} ${label}</span>`;
   }
 
-  // ── Alternar "Seguir minha posição" ──
+  // ── Seguir minha própria posição (botão 🎯 do mapa) ──
   toggleFollowMe() {
-    this._followMe = !this._followMe;
+    const myId = window.sync && window.sync.myId;
+    if (!myId) return;
+    this.followPeer(myId);
+  }
+
+  // ── Seguir um militar específico (clique no botão da lista) ──
+  followPeer(peerId) {
+    // Clicar de novo no mesmo = parar de seguir
+    if (this._followPeerId === peerId) { this.stopFollowing(); return; }
+
+    this._followPeerId = peerId;
+    const myId = window.sync && window.sync.myId;
+    const isMe = peerId === myId;
+    const d = this._data[peerId];
+
+    // Centralizar imediatamente no militar
+    if (d && window.app) {
+      const z = Math.max(window.app.map.getZoom(), 18);
+      window.app.map.setView([d.lat, d.lng], z, { animate: true });
+    } else if (isMe && this._myLastLat && window.app) {
+      window.app.map.setView([this._myLastLat, this._myLastLng], 19, { animate: true });
+    }
+
+    const nome = isMe ? 'você' : (d ? d.nome : 'militar');
+    toast(`🎯 Seguindo ${nome} em tempo real`, 'success');
+    this._updateFollowUI();
+  }
+
+  stopFollowing() {
+    if (!this._followPeerId) return;
+    this._followPeerId = null;
+    toast('Modo seguir desativado', 'info');
+    this._updateFollowUI();
+  }
+
+  // Pan suave para o militar seguido sempre que ele se mover
+  _maybeFollow(peerId, lat, lng) {
+    if (this._followPeerId === peerId && window.app && window.app.map) {
+      window.app.map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    }
+  }
+
+  // Atualiza botão 🎯, faixa "Seguindo" e lista da equipe
+  _updateFollowUI() {
+    const myId = window.sync && window.sync.myId;
+    // Botão 🎯 do mapa (ativo só quando sigo a mim mesmo)
     const btn = document.getElementById('btn-follow-me');
     if (btn) {
-      btn.style.background = this._followMe ? 'var(--accent)' : 'rgba(22,27,34,.85)';
-      btn.style.color = this._followMe ? '#fff' : 'var(--txt2)';
-      btn.title = this._followMe ? 'Seguindo sua posição' : 'Seguir minha posição';
+      const on = this._followPeerId && this._followPeerId === myId;
+      btn.style.background = on ? 'var(--accent)' : 'rgba(22,27,34,.85)';
+      btn.style.color = on ? '#fff' : 'var(--txt2)';
+      btn.title = on ? 'Seguindo você (toque para parar)' : 'Seguir minha posição';
     }
-    if (this._followMe) {
-      toast('🎯 Seguindo sua posição GPS', 'success');
-      if (this._myLastLat && window.app) {
-        window.app.map.setView([this._myLastLat, this._myLastLng], 19, { animate: true });
+    // Faixa "Seguindo: NOME"
+    const banner = document.getElementById('follow-banner');
+    const text = document.getElementById('follow-banner-text');
+    if (banner && text) {
+      if (this._followPeerId) {
+        const isMe = this._followPeerId === myId;
+        const d = this._data[this._followPeerId];
+        const nome = isMe ? 'Você' : (d ? d.nome : 'militar');
+        text.textContent = `Seguindo: ${nome}`;
+        banner.style.display = 'flex';
+      } else {
+        banner.style.display = 'none';
       }
-    } else {
-      toast('Modo seguir desativado', 'info');
     }
+    this._updateTeamList();
   }
 
   // Cálculo de distância Haversine (metros)
@@ -1270,6 +1339,12 @@ class GeoTracker {
     }
     delete this._data[peerId];
     delete this._prevPos[peerId];
+    // Se eu estava seguindo este militar, parar de seguir
+    if (this._followPeerId === peerId) {
+      this._followPeerId = null;
+      toast('O militar seguido saiu — modo seguir desativado', 'info');
+      this._updateFollowUI();
+    }
   }
 
   // ── Limpar posições antigas (>2 min sem atualizar) ──
@@ -1378,6 +1453,9 @@ class GeoTracker {
     }
 
     this._prevPos[peerId] = { lat: data.lat, lng: data.lng };
+
+    // Seguir este militar, se ele for o alvo selecionado
+    this._maybeFollow(peerId, data.lat, data.lng);
   }
 
   _openGeoPopup(peerId) {
@@ -1547,13 +1625,16 @@ class GeoTracker {
       const liveColor = agoSec < 10 ? '#3fb950' : agoSec < 30 ? '#d29922' : '#f85149';
       const agoText = agoSec < 5 ? 'ao vivo' : agoSec < 60 ? `${agoSec}s` : `${Math.round(agoSec/60)}min`;
 
-      return `<div class="user-item" style="cursor:pointer" onclick="window.geoTracker._focusOn('${id}')">
+      const isFollowed = this._followPeerId === id;
+
+      return `<div class="user-item ${isFollowed ? 'following' : ''}">
         <div class="user-dot" style="background:${liveColor}"></div>
-        <div class="user-info">
+        <div class="user-info" style="cursor:pointer" onclick="window.geoTracker._focusOn('${id}')">
           <div class="u-name">${v.nome}${isMe ? ' (Você)' : ''}</div>
           <div class="u-detail">RG: ${v.rg || '—'} | ±${v.accuracy || '?'}m | ${agoText}</div>
         </div>
         <span class="user-service" style="background:${color}22;color:${color}">${v.servico || '—'}</span>
+        <button class="follow-toggle ${isFollowed ? 'on' : ''}" title="${isFollowed ? 'Parar de seguir' : 'Seguir este militar'}" onclick="event.stopPropagation(); window.geoTracker.followPeer('${id}')">🎯</button>
       </div>`;
     }).join('');
   }
