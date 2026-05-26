@@ -229,6 +229,9 @@ body.operador-mode .popup-field input,
 body.operador-mode .popup-field select,
 body.operador-mode .popup-field textarea{pointer-events:none;opacity:.7}
 body.operador-mode #btn-report{display:none!important}
+/* Operador só compartilha o link de operador — esconder view e adm */
+body.operador-mode #share-section-view,
+body.operador-mode #share-section-adm{display:none!important}
 
 /* ═══ LOGIN SCREEN ═══ */
 #login-screen{position:fixed;inset:0;z-index:10000;background:linear-gradient(135deg,#0d1117 0%,#161b22 50%,#1a2332 100%);display:flex;align-items:center;justify-content:center}
@@ -779,7 +782,7 @@ body.operador-mode #btn-report{display:none!important}
     <h2>🔗 Compartilhar Mapa</h2>
     <div class="subtitle">Gere links para sua equipe acompanhar ou editar o posicionamento</div>
 
-    <div class="room-section">
+    <div class="room-section" id="share-section-view">
       <div class="share-box view-box">
         <div class="share-label">👁 Visualização (Somente Leitura)</div>
         <p style="font-size:10px;color:var(--txt3);margin-bottom:6px">Equipe pode ver o mapa em tempo real, mas não pode editar ou mover marcadores.</p>
@@ -790,7 +793,7 @@ body.operador-mode #btn-report{display:none!important}
       </div>
     </div>
 
-    <div class="room-section">
+    <div class="room-section" id="share-section-operador">
       <div class="share-box" style="border-color:var(--accent)">
         <div class="share-label" style="color:var(--accent)">👮 Operador (Militar)</div>
         <p style="font-size:10px;color:var(--txt3);margin-bottom:6px">Compartilha GPS em tempo real, anexa fotos, mas não edita o mapa tático.</p>
@@ -801,7 +804,7 @@ body.operador-mode #btn-report{display:none!important}
       </div>
     </div>
 
-    <div class="room-section">
+    <div class="room-section" id="share-section-adm">
       <div class="share-box adm-box">
         <div class="share-label">🛡 Edição (Administrador)</div>
         <p style="font-size:10px;color:var(--txt3);margin-bottom:6px">Acesso completo: posicionar, editar, mover e remover equipes no mapa.</p>
