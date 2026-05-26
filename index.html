@@ -278,9 +278,11 @@ body.operador-mode #share-section-adm{display:none!important}
 /* ═══ ENTRADAS / PORTÕES DO ESTÁDIO ═══ */
 .entrance-marker{background:none!important;border:none!important}
 .ent-inner{display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-62%);pointer-events:none}
-.ent-pin{width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#f59e0b;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
-.ent-pin span{transform:rotate(45deg);color:#fff;font-size:11px;font-weight:800;line-height:1}
-.ent-label{margin-top:3px;font-size:9px;font-weight:700;color:#fff;background:rgba(0,0,0,.78);padding:1px 6px;border-radius:8px;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.ent-pin{min-width:22px;height:22px;padding:0 4px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#f59e0b;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+.ent-pin span{transform:rotate(45deg);color:#fff;font-size:10px;font-weight:800;line-height:1}
+.ent-label{margin-top:3px;display:flex;flex-direction:column;align-items:center;background:rgba(0,0,0,.78);padding:2px 7px;border-radius:8px;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.ent-label .ent-name{font-size:9px;font-weight:800;color:#fff;line-height:1.1}
+.ent-label .ent-sub{font-size:7.5px;font-weight:600;color:#ffd9a0;line-height:1.1}
 
 /* ═══ PHOTO POPUP / CAPTURE ═══ */
 .geo-popup{padding:12px 14px;max-width:280px}
@@ -1757,19 +1759,42 @@ const STADIUMS = [
   }
 ];
 
-// ── ENTRADAS / PORTÕES DOS ESTÁDIOS ──
-// Os estádios têm 4 entradas: Norte, Leste, Sul e Oeste.
-// O raio é a distância do centro até a entrada.
-const ENTRANCE_RING = [
-  { letter:'N', sector:'Norte', bearing:0   },
-  { letter:'L', sector:'Leste', bearing:90  },
-  { letter:'S', sector:'Sul',   bearing:180 },
-  { letter:'O', sector:'Oeste', bearing:270 }
-];
+// ── ENTRADAS / PORTÕES REAIS DOS ESTÁDIOS (pesquisado na web) ──
+// bearing: direção a partir do centro (0=Norte, 90=Leste, 180=Sul, 270=Oeste)
+const STADIUM_ENTRANCES = {
+  // Maracanã — usa Acessos por letra (A a F)
+  maracana: [
+    { badge:'A', name:'Acesso A', sub:'Setor Oeste · R. Prof. Manoel de Abreu', bearing:270 },
+    { badge:'B', name:'Acesso B', sub:'Setor Sul · R. Prof. Eurico Rabelo',     bearing:158 },
+    { badge:'C', name:'Acesso C', sub:'Setor Sul · R. Prof. Eurico Rabelo',     bearing:202 },
+    { badge:'D', name:'Acesso D', sub:'Setor Leste · Av. Maracanã',             bearing:90  },
+    { badge:'E', name:'Acesso E', sub:'Setor Norte · R. Mata Machado',          bearing:338 },
+    { badge:'F', name:'Acesso F', sub:'Setor Norte · Av. Rei Pelé',             bearing:22  }
+  ],
+  // Engenhão / Nilton Santos — 4 portões cardeais
+  engenhao: [
+    { badge:'N', name:'Portão Norte', sub:'R. das Oficinas',                bearing:0   },
+    { badge:'L', name:'Portão Leste', sub:'Principal · R. Dr. Padilha',     bearing:90  },
+    { badge:'S', name:'Portão Sul',   sub:'Visitante · R. Arquias Cordeiro', bearing:180 },
+    { badge:'O', name:'Portão Oeste', sub:'R. José dos Reis',               bearing:270 }
+  ],
+  // São Januário — portões numerados por rua
+  // Oeste = Av. Roberto Dinamite | Leste = R. São Januário
+  // Norte = R. Francisco Palheta | Sul = R. Dom Carlos
+  saojanuario: [
+    { badge:'4',  name:'Portão 4',     sub:'Torcida · Av. Roberto Dinamite',   bearing:255 },
+    { badge:'S',  name:'Setor Social', sub:'Sócios · Av. Roberto Dinamite',    bearing:275 },
+    { badge:'19', name:'Portão 19',    sub:'Cadeiras · Av. Roberto Dinamite',  bearing:295 },
+    { badge:'7',  name:'Portão 7',     sub:'Bilheteria · R. Fco. Palheta',     bearing:342 },
+    { badge:'9',  name:'Portão 9',     sub:'Arquibancada · R. Fco. Palheta',   bearing:18  },
+    { badge:'11', name:'Portão 11',    sub:'Visitante · R. São Januário',      bearing:90  },
+    { badge:'16', name:'Portão 16',    sub:'Imprensa · R. Dom Carlos',         bearing:180 }
+  ]
+};
 // Raio (metros) do anel de entradas por estádio
 const STADIUM_ENTRANCE_RADIUS = {
-  maracana: 135,
-  engenhao: 145,
+  maracana: 140,
+  engenhao: 150,
   saojanuario: 95
 };
 
@@ -2287,15 +2312,20 @@ class App {
 
     const s = STADIUMS.find(st => st.id === stadiumId);
     if (!s) return;
+    const entrances = STADIUM_ENTRANCES[stadiumId];
+    if (!entrances) return;
     const radius = STADIUM_ENTRANCE_RADIUS[stadiumId] || 130;
 
-    ENTRANCE_RING.forEach(ent => {
+    entrances.forEach(ent => {
       const [lat, lng] = offsetLatLng(s.lat, s.lng, ent.bearing, radius);
       const icon = L.divIcon({
         className: 'entrance-marker',
         html: `<div class="ent-inner">
-          <div class="ent-pin"><span>${ent.letter}</span></div>
-          <div class="ent-label">Entrada ${ent.sector}</div>
+          <div class="ent-pin"><span>${ent.badge}</span></div>
+          <div class="ent-label">
+            <span class="ent-name">${ent.name}</span>
+            ${ent.sub ? `<span class="ent-sub">${ent.sub}</span>` : ''}
+          </div>
         </div>`,
         iconSize: [0, 0],
         iconAnchor: [0, 0]
