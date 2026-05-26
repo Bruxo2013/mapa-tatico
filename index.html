@@ -329,6 +329,8 @@ body.operador-mode #share-section-adm{display:none!important}
 .follow-toggle{flex-shrink:0;width:28px;height:28px;border:1px solid var(--border);background:var(--bg3);color:var(--txt2);border-radius:7px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s;margin-left:2px}
 .follow-toggle:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
 .follow-toggle.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.user-remove{flex-shrink:0;width:24px;height:24px;border:1px solid rgba(248,81,73,.35);background:rgba(248,81,73,.1);color:var(--danger);border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;transition:all .15s;margin-left:2px;line-height:1}
+.user-remove:hover{background:var(--danger);color:#fff;border-color:var(--danger)}
 
 /* Faixa "Seguindo: NOME" sobre o mapa */
 .follow-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:1100;display:flex;align-items:center;gap:8px;background:rgba(88,166,255,.96);color:#fff;border-radius:20px;padding:6px 8px 6px 14px;font-size:12px;font-weight:700;box-shadow:0 3px 12px rgba(0,0,0,.45);backdrop-filter:blur(6px);max-width:80vw}
@@ -1343,12 +1345,38 @@ class GeoTracker {
   _listen() {
     this._locRef = fbDb.ref(`rooms/${window.sync.roomId}/locations`);
 
+    // Limpeza inicial: remover entradas obsoletas (>5 min sem atualizar)
+    // Isso impede que dados de "ontem" apareçam quando alguém abre o app.
+    this._cleanupOldLocationsInFirebase();
+
     this._locRef.on('child_added', (snap) => this._updateMarker(snap.key, snap.val()));
     this._locRef.on('child_changed', (snap) => this._updateMarker(snap.key, snap.val()));
     this._locRef.on('child_removed', (snap) => {
       this._removeMarker(snap.key);
       this._updateTeamList();
     });
+  }
+
+  // Limpa do Firebase qualquer entrada cujo ts seja antigo demais
+  _cleanupOldLocationsInFirebase() {
+    if (!window.sync || !window.sync.roomId) return;
+    const roomId = window.sync.roomId;
+    const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutos
+    fbDb.ref(`rooms/${roomId}/locations`).once('value').then(snap => {
+      const all = snap.val() || {};
+      const now = Date.now();
+      let removed = 0;
+      for (const [peerId, data] of Object.entries(all)) {
+        if (!data || typeof data.ts !== 'number') continue;
+        if ((now - data.ts) > MAX_AGE_MS) {
+          fbDb.ref(`rooms/${roomId}/locations/${peerId}`).remove();
+          fbDb.ref(`rooms/${roomId}/presence/${peerId}`).remove();
+          fbDb.ref(`rooms/${roomId}/photos/${peerId}`).remove();
+          removed++;
+        }
+      }
+      if (removed > 0) console.log(`[Geo] Limpas ${removed} entradas antigas do Firebase`);
+    }).catch(() => {});
   }
 
   _removeMarker(peerId) {
@@ -1384,6 +1412,17 @@ class GeoTracker {
   // ── Atualizar/criar marcador ──
   _updateMarker(peerId, data) {
     if (!data || !data.lat || !data.lng) return;
+
+    // Rejeitar/limpar entradas obsoletas (>5 minutos desde o último update do servidor)
+    if (typeof data.ts === 'number' && (Date.now() - data.ts) > 5 * 60 * 1000) {
+      this._removeMarker(peerId);
+      if (window.sync && window.sync.roomId) {
+        const roomId = window.sync.roomId;
+        fbDb.ref(`rooms/${roomId}/locations/${peerId}`).remove();
+        fbDb.ref(`rooms/${roomId}/presence/${peerId}`).remove();
+      }
+      return;
+    }
 
     // Rejeitar posições com precisão ruim (>80m = não é GPS real)
     if (data.accuracy && data.accuracy > 80) return;
@@ -1649,6 +1688,8 @@ class GeoTracker {
       const agoText = agoSec < 5 ? 'ao vivo' : agoSec < 60 ? `${agoSec}s` : `${Math.round(agoSec/60)}min`;
 
       const isFollowed = this._followPeerId === id;
+      const isAdm = window.app && window.app.accessMode === 'adm';
+      const safeNome = (v.nome || '').replace(/'/g, "\\'");
 
       return `<div class="user-item ${isFollowed ? 'following' : ''}">
         <div class="user-dot" style="background:${liveColor}"></div>
@@ -1658,6 +1699,7 @@ class GeoTracker {
         </div>
         <span class="user-service" style="background:${color}22;color:${color}">${v.servico || '—'}</span>
         <button class="follow-toggle ${isFollowed ? 'on' : ''}" title="${isFollowed ? 'Parar de seguir' : 'Seguir este militar'}" onclick="event.stopPropagation(); window.geoTracker.followPeer('${id}')">🎯</button>
+        ${(isAdm && !isMe) ? `<button class="user-remove" title="Remover militar da operação" onclick="event.stopPropagation(); window.geoTracker.removePeer('${id}', '${safeNome}')">✕</button>` : ''}
       </div>`;
     }).join('');
   }
@@ -1668,6 +1710,29 @@ class GeoTracker {
     if (!data) return;
     window.app.map.setView([data.lat, data.lng], 19, { animate: true });
     setTimeout(() => this._openGeoPopup(peerId), 500);
+  }
+
+  // ── Remover militar da operação (ADM only) ──
+  removePeer(peerId, nome) {
+    if (window.app && window.app.accessMode !== 'adm') {
+      toast('🔒 Apenas ADM pode remover militares', 'info');
+      return;
+    }
+    if (!confirm(`Remover ${nome || 'este militar'} da operação?`)) return;
+    const roomId = window.sync && window.sync.roomId;
+    if (!roomId) { toast('Sala não conectada', 'error'); return; }
+    // Se eu estava seguindo este militar, parar
+    if (this._followPeerId === peerId) this.stopFollowing();
+    Promise.all([
+      fbDb.ref(`rooms/${roomId}/locations/${peerId}`).remove(),
+      fbDb.ref(`rooms/${roomId}/presence/${peerId}`).remove(),
+      fbDb.ref(`rooms/${roomId}/photos/${peerId}`).remove()
+    ]).then(() => {
+      // Local também — caso o evento child_removed atrase
+      this._removeMarker(peerId);
+      this._updateTeamList();
+      toast(`${nome || 'Militar'} removido da operação`, 'success');
+    }).catch(err => toast('Erro: ' + err.message, 'error'));
   }
 
   destroy() {
