@@ -107,7 +107,7 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 
 /* MAP CONTAINER */
 #map-container{position:relative;z-index:1;overflow:hidden;background:#e8e0d8}
-#map-wrapper{position:absolute;top:-25%;left:-25%;width:150%;height:150%;transform-origin:center center;will-change:transform}
+#map-wrapper{position:absolute;inset:0;transform-origin:center center}
 #map-wrapper.smooth{transition:transform .5s cubic-bezier(.25,.46,.45,.94)}
 #map-wrapper.snap{transition:transform .7s cubic-bezier(.16,1,.3,1)}
 #map{width:100%;height:100%}
@@ -2378,10 +2378,14 @@ class App {
       // How much bigger rotated rect needs to be to cover original
       const needW = w * cosA + h * sinA;
       const needH = w * sinA + h * cosA;
-      // Wrapper is 150%, so actual map is 1.5x. Scale = needed / available
-      const available = 1.5;
-      const scale = Math.max(needW / (w * available), needH / (h * available), 1);
-      mapWrapper.style.transform = `rotate(${this.bearing}deg) scale(${scale})`;
+      // Wrapper agora é 100% (sem inflar). Escala cobre cantos só quando girado.
+      const scale = Math.max(needW / w, needH / h, 1);
+      // No Norte (sem giro), NÃO aplicar transform — mapa fica nativo/preciso ao toque
+      if (this.bearing === 0) {
+        mapWrapper.style.transform = '';
+      } else {
+        mapWrapper.style.transform = `rotate(${this.bearing}deg) scale(${scale})`;
+      }
       // Compass rotates inversely
       compassRing.style.transform = `rotate(${-this.bearing}deg)`;
       compassDeg.textContent = `${Math.round(this.bearing)}°`;
@@ -2496,71 +2500,11 @@ class App {
       }
     });
 
-    // ── Two-finger touch rotation with inertia ──
-    let touchStartAngle = null;
-    let touchVelocity = 0;
-    let lastTouchTime = 0;
-    let lastTouchBearing = 0;
-
-    mapEl.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
-        if (inertiaRAF) { cancelAnimationFrame(inertiaRAF); inertiaRAF = null; }
-        mapWrapper.classList.remove('smooth', 'snap');
-        const dx = e.touches[1].clientX - e.touches[0].clientX;
-        const dy = e.touches[1].clientY - e.touches[0].clientY;
-        touchStartAngle = { angle: Math.atan2(dy, dx) * 180 / Math.PI, startBearing: this.bearing };
-        touchVelocity = 0;
-        lastTouchTime = performance.now();
-        lastTouchBearing = this.bearing;
-      }
-    }, { passive: true });
-
-    mapEl.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 2 && touchStartAngle) {
-        const dx = e.touches[1].clientX - e.touches[0].clientX;
-        const dy = e.touches[1].clientY - e.touches[0].clientY;
-        const currentAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-        const delta = currentAngle - touchStartAngle.angle;
-        const newBearing = touchStartAngle.startBearing + delta;
-
-        // Track velocity
-        const now = performance.now();
-        const dt = now - lastTouchTime;
-        if (dt > 0) {
-          const normNew = ((newBearing % 360) + 360) % 360;
-          const normLast = ((lastTouchBearing % 360) + 360) % 360;
-          let dDeg = normNew - normLast;
-          if (dDeg > 180) dDeg -= 360;
-          if (dDeg < -180) dDeg += 360;
-          touchVelocity = dDeg / dt * 16;
-        }
-        lastTouchTime = now;
-        lastTouchBearing = newBearing;
-
-        immediateRotate(newBearing);
-      }
-    }, { passive: true });
-
-    mapEl.addEventListener('touchend', (e) => {
-      if (touchStartAngle && e.touches.length < 2) {
-        touchStartAngle = null;
-        // Inertia for touch
-        if (Math.abs(touchVelocity) > 0.3) {
-          const decay = 0.92;
-          const step = () => {
-            touchVelocity *= decay;
-            if (Math.abs(touchVelocity) < 0.05) {
-              touchVelocity = 0;
-              inertiaRAF = null;
-              return;
-            }
-            immediateRotate(this.bearing + touchVelocity);
-            inertiaRAF = requestAnimationFrame(step);
-          };
-          inertiaRAF = requestAnimationFrame(step);
-        }
-      }
-    }, { passive: true });
+    // Rotação por toque (dois dedos) foi REMOVIDA: ela conflitava com o
+    // pinch-zoom do Leaflet no celular, causando arrasto impreciso e
+    // "mapa indo para o lado errado". No mobile o mapa fica sempre ao
+    // Norte, com toque nativo do Leaflet (suave e preciso).
+    // A rotação continua disponível no desktop (botões, slider, botão direito).
   }
 
   // ── Go To coords ──
